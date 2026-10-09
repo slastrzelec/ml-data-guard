@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Secrets
+.env
+.env.*
+
+# Data is never tracked: only data/README.md lives in data/
+data/*
+!data/README.md
+*.csv
+*.parquet
+*.feather
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.zip
+*.gz
+
+# Local scratch
+_to_delete/
+.idea/
+.vscode/
