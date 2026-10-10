@@ -1,6 +1,6 @@
 # SPEC: ml-data-guard
 
-Status: **APPROVED v0.5 (2026-10-10).** Phases 1 and 2 complete (audits in section 13); phase 3 design in section 15. Scope changes go into this file first.
+Status: **APPROVED v0.6 (2026-10-10).** All three phases complete (audits in section 13). Scope changes go into this file first.
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
@@ -226,7 +226,7 @@ ml-data-guard/
 
 ## 12. Risks
 
-- **"Yet another TFDV"** - mitigated by making the benchmark the deliverable and by comparing against existing tools.
+- **"Yet another TFDV"** - mitigated by making the benchmark the deliverable. The comparison against existing tools was dropped (section 15.7), so this mitigation is weaker than planned.
 - Synthetic faults may not resemble real incidents - stated as a limitation, fault catalogue is documented and extensible.
 - Threshold calibration can leak evaluation data - prevented by the split rules in section 3 and tested.
 - Scope creep into a platform - non-goals above.
@@ -262,11 +262,31 @@ feature-skew comparison that could detect `time_travel` does not exist yet.
 | 2. Validator catches the schema-violating injectors; what it misses is listed | Met | `tests/test_validate.py`: six faults caught, six asserted to be missed. |
 | 3. Skew flags `time_travel` where the distribution detectors do not | Met | `tests/test_compare.py::test_skew_finds_time_travel_that_the_distances_miss`. |
 | 4. No cell values by default; `domains=none` leaves no value in the schema | Met | Tests in `test_schema.py`, `test_validate.py`, `test_cli.py`. |
-| 5. CI green on 3.11 and 3.12; mutation checks cover the new modules | To be confirmed by CI | 25 new mutants (82 in total), all killed locally in partial runs. |
+| 5. CI green on 3.11 and 3.12; mutation checks cover the new modules | Met | 25 new mutants (82 in total); CI run for commit 664ea48 green, including the mutation job. |
 
 Not delivered or weaker than the design: Parquet input is untested (needs `pyarrow`); cell-wise Python loops
 limit validation and skew to moderate table sizes; the phase 1 benchmark was not extended with the skew
 check (by design, section 14.3).
+
+### Phase 3 (2026-10-10, code at commit f7fd371, results at efb2152)
+
+| Acceptance criterion (section 15.6) | State | Evidence |
+|---|---|---|
+| 1. All results from one commit, reproducible from the stored configs | Met on one machine | The six result files record commit f7fd371. Against the earlier runs, the Covertype fault cells (92 of 92) and the synthetic cells outside `tiny_noise` (138 of 138) came out identical. News and Beijing were run once; not checked across machines. |
+| 2. README states findings with intervals and names what was not measured | Met | README sections "Results" and "How to read these numbers"; every number was copied from the result files by hand, there is no automated check that README and JSON agree. |
+| 3. Portfolio page with the Testing section, linked from the index and the repository | Met | `ml-data-guard/` in the portfolio repository, entries in `mkdocs.yml` and on the home page, link at the top of the README. |
+| 4. TFDV / Evidently done or explicitly dropped | Dropped | Section 15.7. |
+
+Against the general criteria of section 10: criterion 3 is still only partly met in the README (the model
+impact is shown next to each rule for Covertype and next to the best distance for Beijing; the per-rule
+tables for the other runs are in `benchmarks/results/`).
+
+Negative results and open points: the rolling reference did not improve recall on Beijing (hypothesis of
+section 15.2 rejected on real data, confirmed only on synthetic seasonal data); the calibrated
+false-positive rate is not met on Beijing (7.5 - 10.2% at 10,000 rows against a 1% target); the inferred
+schema rejects 19% of clean News and 40% of clean Beijing batches; no check in the benchmark finds
+`time_travel`; the News model (accuracy 0.675) is too weak to support conclusions about model impact;
+the comparison with existing tools does not exist.
 
 ## 14. Phase 2 design: the library layer
 

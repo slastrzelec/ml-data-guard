@@ -14,6 +14,8 @@ implementation and evaluation, not a copy of TensorFlow Data Validation.
 
 Scope, data-security rules, evaluation-leakage rules and acceptance criteria: [`SPEC.md`](SPEC.md).
 
+Project page with a summary of the findings: <a href="https://slastrzelec.github.io/portfolio/ml-data-guard/" target="_blank" rel="noopener noreferrer">slastrzelec.github.io/portfolio/ml-data-guard</a>
+
 ## Results
 
 Six runs from one commit, each reproducible from its stored config: UCI Covertype (581,012 rows),
