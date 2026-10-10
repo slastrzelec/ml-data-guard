@@ -1,6 +1,6 @@
 {
   "meta": {
-    "commit": "de7200a",
+    "commit": "0e99fae",
     "config": {
       "batch_sizes": [ 1000, 10000 ],
       "data_path": null,

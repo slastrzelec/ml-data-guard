@@ -3,7 +3,7 @@
 - Data: UCI Covertype, CC BY 4.0, https://doi.org/10.24432/C50K5N, 581,012 rows, 10 numeric and 2 categorical features.
 - Splits (rows): reference 232,404, calibration 145,253, evaluation 145,253, held-out 58,102.
 - Seed 20261010; 1000 calibration batches, 1000 clean batches, 100 faulty batches per fault and severity; target false-positive rate 0.01.
-- Commit: de7200a; ml-data-guard 0.1.0, numpy 2.4.6, pandas 3.0.6, python 3.11.17, scikit-learn 1.9.1, scipy 1.17.1.
+- Commit: 0e99fae; ml-data-guard 0.1.0, numpy 2.4.6, pandas 3.0.6, python 3.11.17, scikit-learn 1.9.1, scipy 1.17.1.
 
 Rates are followed by 95% Wilson intervals where space allows; every interval is in the
 JSON file. With 100 faulty batches a recall of 0.50 has an interval of

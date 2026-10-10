@@ -6,7 +6,7 @@
 | `configs/synthetic.json` | I.i.d. synthetic table, batch sizes 1,000 / 10,000 / 100,000. |
 | `configs/synthetic_series.json` | Time-ordered synthetic series for the `time_travel` fault. |
 | `configs/covertype.json` | UCI Covertype; needs `python tools/download_data.py covertype` first. |
-| `results/` | JSON results and generated Markdown reports of the runs that were actually made. |
+| `results/` | JSON results and generated Markdown reports of the full runs (`covertype`, `synthetic`, `synthetic_series`). |
 
 Run one config (from the repository root):
 

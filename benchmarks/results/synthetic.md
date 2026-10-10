@@ -3,7 +3,7 @@
 - Data: synthetic, 4,000,000 rows, 5 numeric and 2 categorical features.
 - Splits (rows): reference 1,600,000, calibration 1,000,000, evaluation 1,000,000, held-out 400,000.
 - Seed 20261010; 1000 calibration batches, 1000 clean batches, 100 faulty batches per fault and severity; target false-positive rate 0.01.
-- Commit: de7200a; ml-data-guard 0.1.0, numpy 2.4.6, pandas 3.0.6, python 3.11.17, scikit-learn 1.9.1, scipy 1.17.1.
+- Commit: 0e99fae; ml-data-guard 0.1.0, numpy 2.4.6, pandas 3.0.6, python 3.11.17, scikit-learn 1.9.1, scipy 1.17.1.
 
 Rates are followed by 95% Wilson intervals where space allows; every interval is in the
 JSON file. With 100 faulty batches a recall of 0.50 has an interval of
@@ -62,7 +62,7 @@ about +/- 0.10.
 | `pinned_value` | 0.01 | feature | 0.01 | 0.01 | 0.44 | 0.42 | 0.44 | 0.44 | 0.03 |
 | `pinned_value` | 0.05 | feature | 0.96 | 0.63 | 0.91 | 0.88 | 0.88 | 0.92 | 0.82 |
 | `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `tiny_noise` (control) | 0.0001 | feature | 0.01 | 0.01 | 0.02 | 0.02 | 0.02 | 0.04 | 0.01 |
+| `tiny_noise` (control) | 0.0001 | feature | 0.01 | 0.01 | 0.02 | 0.02 | 0.02 | 0.02 | 0.01 |
 | `type_change` | 0.001 | feature | 0.00 | 0.02 | 0.02 | 0.02 | 0.02 | 0.79 | 0.00 |
 | `type_change` | 0.005 | feature | 0.00 | 0.01 | 0.74 | 0.53 | 0.74 | 0.74 | 0.00 |
 | `type_change` | 0.01 | feature | 0.01 | 0.04 | 0.85 | 0.85 | 0.85 | 0.85 | 0.02 |
@@ -113,7 +113,7 @@ about +/- 0.10.
 | `pinned_value` | 0.01 | feature | 0.45 | 0.07 | 0.00 | 0.00 | 0.93 |
 | `pinned_value` | 0.05 | feature | 0.96 | 0.98 | 0.47 | 0.47 | 1.00 |
 | `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 0.98 | 1.00 | 1.00 |
-| `tiny_noise` (control) | 0.0001 | feature | 0.08 | 0.05 | 0.00 | 0.00 | 0.92 |
+| `tiny_noise` (control) | 0.0001 | feature | 0.06 | 0.05 | 0.00 | 0.00 | 0.92 |
 | `type_change` | 0.001 | feature | 0.81 | 0.01 | 0.00 | 0.00 | 0.98 |
 | `type_change` | 0.005 | feature | 0.75 | 0.05 | 0.00 | 0.00 | 0.98 |
 | `type_change` | 0.01 | feature | 0.86 | 0.03 | 0.00 | 0.00 | 1.00 |
@@ -308,7 +308,7 @@ Not scorable by a distribution distance (the column is gone; this is a schema ch
 | `pinned_value` | 0.01 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
 | `pinned_value` | 0.05 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
 | `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `tiny_noise` (control) | 0.0001 | feature | 0.01 | 0.00 | 0.00 | 0.01 | 0.00 | 0.10 | 0.01 |
+| `tiny_noise` (control) | 0.0001 | feature | 0.01 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.01 |
 | `type_change` | 0.001 | feature | 0.01 | 0.04 | 0.80 | 0.80 | 0.80 | 0.80 | 0.01 |
 | `type_change` | 0.005 | feature | 1.00 | 0.71 | 1.00 | 1.00 | 1.00 | 1.00 | 0.01 |
 | `type_change` | 0.01 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.00 |
@@ -359,7 +359,7 @@ Not scorable by a distribution distance (the column is gone; this is a schema ch
 | `pinned_value` | 0.01 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 0.05 |
 | `pinned_value` | 0.05 | feature | 1.00 | 1.00 | 0.47 | 0.47 | 1.00 |
 | `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `tiny_noise` (control) | 0.0001 | feature | 0.13 | 0.04 | 0.00 | 0.00 | 0.00 |
+| `tiny_noise` (control) | 0.0001 | feature | 0.05 | 0.04 | 0.00 | 0.00 | 0.00 |
 | `type_change` | 0.001 | feature | 0.80 | 0.04 | 0.00 | 0.00 | 0.00 |
 | `type_change` | 0.005 | feature | 1.00 | 0.05 | 0.00 | 0.00 | 0.00 |
 | `type_change` | 0.01 | feature | 1.00 | 0.05 | 0.00 | 0.00 | 0.07 |

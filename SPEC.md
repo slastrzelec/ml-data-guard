@@ -1,6 +1,6 @@
 # SPEC: ml-data-guard
 
-Status: **APPROVED v0.3 (2026-10-10).** Scope changes go into this file first.
+Status: **APPROVED v0.3 (2026-10-10).** Phase 1 complete (audit in section 13). Scope changes go into this file first.
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
@@ -228,3 +228,26 @@ ml-data-guard/
 - Synthetic faults may not resemble real incidents - stated as a limitation, fault catalogue is documented and extensible.
 - Threshold calibration can leak evaluation data - prevented by the split rules in section 3 and tested.
 - Scope creep into a platform - non-goals above.
+
+## 13. Phase audits
+
+### Phase 1 (2026-10-10, commit 0e99fae plus the results commit)
+
+| Acceptance criterion | State | Evidence |
+|---|---|---|
+| 1. Clean clone installs and `pytest` passes offline, no environment variables | Met | CI on Python 3.11 and 3.12 (Ubuntu) and a local run on Windows 11: 551 tests. CI installs the pinned `requirements-dev.txt`; `pip install -e .[dev]` with unpinned versions is not exercised by CI. |
+| 2. The benchmark reproduces the published report from config and seed | Met on one machine | The three full configs were run twice on the same Windows machine (commits de7200a and 0e99fae). Covertype and the series were identical except for the recorded commit; the synthetic run differed only in the `tiny_noise` entries, whose injector was changed in between. Not checked across machines. |
+| 3. Report has recall per fault and severity, FPR, and alert versus model impact | Partly | Recall and FPR are reported for every detector. The impact table shows the best recall of any detector per fault, not one column per detector. |
+| 4. No data, secrets or personal data tracked | Met | `tests/test_repo_hygiene.py` in CI; the Covertype archive is git-ignored and checksum-pinned. |
+| 5. README states what is measured and what is not | Met for the README | The portfolio page belongs to phase 3. |
+
+Scope of phase 1 delivered: distances and baselines, twelve injectors, benchmark on synthetic data and
+Covertype, tests, mutation checks and CI from the first commit.
+
+Deviations from the first approved version, all recorded above: split 40/25/25/10 (section 6), Covertype at
+1,000 and 10,000 rows per batch only, `natural_daily_variation` as fresh clean batches instead of an
+injector, integer-preserving `mean_shift` / `variance_change`, Wilson intervals for proportions.
+
+Known weaknesses carried forward: achieved false-positive rate 0.5 - 1.9% against a 1% target; recall on
+tiny shifts is inflated by lattice-valued features; 100 faulty batches per cell give wide intervals; the
+feature-skew comparison that could detect `time_travel` does not exist yet.
