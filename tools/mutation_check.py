@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-COPIED = ("src", "tests", "pyproject.toml", ".gitignore")
+COPIED = ("src", "tests", "benchmarks", "pyproject.toml", ".gitignore")
 DISTANCES = "src/mlguard/distances.py"
 INJECT = "src/mlguard/inject.py"
 DISTANCE_TESTS = ("tests/test_distances.py", "tests/test_binning.py")

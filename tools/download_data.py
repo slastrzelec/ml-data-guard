@@ -19,13 +19,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-# sha256 is pinned after the first download that was checked against the documented size and
-# structure of the dataset (mlguard.datasets.load_covertype validates both).
+# The Covertype checksum was pinned on 2026-10-10 from a download whose content passed
+# mlguard.datasets.load_covertype (581,012 rows, 55 columns, valid one-hot groups).
 SOURCES = {
     "covertype": {
         "url": "https://archive.ics.uci.edu/static/public/31/covertype.zip",
         "path": "data/covertype/covertype.zip",
-        "sha256": None,
+        "sha256": "89a975c2457cd48e824238ae43c5a3cb762e42c4b4078d9b44a4514055105f6d",
         "licence": "CC BY 4.0, https://doi.org/10.24432/C50K5N",
     },
 }
