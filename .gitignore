@@ -31,6 +31,9 @@ data/*
 *.zip
 *.gz
 
+# Output of the quick check run, not a published result
+benchmarks/results/smoke.*
+
 # Local scratch
 _to_delete/
 .idea/

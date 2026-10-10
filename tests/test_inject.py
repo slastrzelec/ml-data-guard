@@ -468,9 +468,29 @@ def test_tiny_noise_stays_inside_the_domain_of_the_feature(
         allowed = batch[feature].to_numpy(dtype=object)
         assert all(any(_equal(value, a) for a in allowed) for value in result[feature])
     jittered = run("tiny_noise", batch, "x", severity, seed)
+    assert jittered["x"].dropna().between(batch["x"].min(), batch["x"].max()).all()
+    moved = changed_rows(batch, jittered, "x")
     spread = float(np.nanstd(batch["x"]))
-    low, high = batch["x"].min() - spread, batch["x"].max() + spread
-    assert jittered["x"].dropna().between(low, high).all()
+    # every new value is a value of the batch moved by a small jitter
+    originals = batch["x"].dropna().to_numpy()
+    for value in jittered["x"][moved].dropna():
+        assert np.abs(originals - value).min() <= spread
+
+
+def test_tiny_noise_does_not_leave_the_domain_of_a_bounded_feature() -> None:
+    rng = np.random.default_rng(2)
+    batch = pd.DataFrame({"x": np.where(rng.random(5_000) < 0.3, 0.0, rng.gamma(2.0, 3.0, 5_000))})
+    result = run("tiny_noise", batch, "x", 0.2, seed=0)
+    assert (result["x"] != batch["x"]).sum() > 500
+    assert result["x"].min() >= 0.0
+    assert result["x"].max() <= batch["x"].max()
+
+
+def test_tiny_noise_jitter_is_a_tenth_of_a_standard_deviation() -> None:
+    batch = pd.DataFrame({"x": np.random.default_rng(4).normal(0.0, 1.0, 50_000)})
+    result = run("tiny_noise", batch, "x", 1.0, seed=0)
+    # resampling keeps the spread, a 0.1 sigma jitter adds 0.5% to it
+    assert result["x"].std() == pytest.approx(batch["x"].std() * np.sqrt(1.01), rel=0.01)
 
 
 def test_tiny_noise_at_the_spec_level_touches_one_row_in_ten_thousand() -> None:

@@ -314,6 +314,13 @@ MUTANTS = [
         INJECT_TESTS,
     ),
     Mutant(
+        "tiny_noise invents values outside the range of the feature",
+        INJECT,
+        "            new = np.clip(new, np.nanmin(values), np.nanmax(values))",
+        "            pass",
+        INJECT_TESTS,
+    ),
+    Mutant(
         "duplicate_rows can copy a row onto itself",
         INJECT,
         "rng.integers(1, n_rows, size=n_rows)",

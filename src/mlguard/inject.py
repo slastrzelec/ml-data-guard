@@ -349,8 +349,10 @@ def tiny_noise(
 ) -> pd.DataFrame:
     """Negative control: resample a tiny fraction of rows from the feature's own values.
 
-    Float features also get a jitter of 0.1 batch standard deviations. A detector that alarms on
-    this is too sensitive to be useful.
+    Float features also get a jitter of 0.1 batch standard deviations, clipped to the range of the
+    batch: the control must not invent values outside the feature's domain (a negative value for
+    a feature that is never negative would be a real anomaly, not noise). A detector that alarms
+    on this is too sensitive to be useful.
     """
     series = _column(batch, feature)
     fraction = _fraction(severity)
@@ -362,6 +364,8 @@ def tiny_noise(
     if is_float_dtype(series.dtype):
         std = float(np.nanstd(values)) if not np.all(np.isnan(values)) else 0.0
         new = new + rng.normal(0.0, 0.1 * std, size=len(values))
+        if not np.all(np.isnan(values)):
+            new = np.clip(new, np.nanmin(values), np.nanmax(values))
     return _with_column(batch, feature, _assign(values, rows, new[rows]))
 
 

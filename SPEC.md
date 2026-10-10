@@ -78,7 +78,8 @@ phase 3). Expected and reported as such: marginal-distribution distances are not
 the feature's distribution barely changes; the detector that can is the key-joined feature-skew comparison.
 A miss by the distribution distances is a result, not a bug.
 Two **negative controls** that must NOT alarm: `tiny_noise` (0.01% of rows resampled from a slightly
-different distribution) and `natural_daily_variation`. The second one is not an injector: it is a fresh
+different distribution; the jitter is clipped to the observed range, because a value outside the feature's
+domain would be a real anomaly and not noise) and `natural_daily_variation`. The second one is not an injector: it is a fresh
 clean batch drawn by the benchmark runner from the evaluation split. Bootstrapping an existing batch
 instead would add resampling noise on top of sampling noise and inflate the false-positive rate.
 
