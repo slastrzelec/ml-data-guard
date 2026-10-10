@@ -1,0 +1,9 @@
+{
+  "dataset": "synthetic",
+  "dataset_rows": 4000000,
+  "seed": 20261010,
+  "batch_sizes": [1000, 10000, 100000],
+  "n_calibration_batches": 1000,
+  "n_clean_batches": 1000,
+  "n_seeds": 100
+}

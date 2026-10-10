@@ -353,14 +353,13 @@ def test_unit_change_multiplies_the_requested_fraction_by_the_factor(
 def test_mean_shift_moves_the_mean_by_severity_sigmas_and_keeps_the_spread(
     batch: pd.DataFrame, severity: float, seed: int
 ) -> None:
-    for feature in ("x", "k"):
-        result = run("mean_shift", batch, feature, severity, seed)
-        std = batch[feature].std(ddof=0)
-        assert result[feature].mean() - batch[feature].mean() == pytest.approx(
-            severity * std, rel=1e-9, abs=1e-9
-        )
-        assert result[feature].std(ddof=0) == pytest.approx(std, rel=1e-9, abs=1e-9)
-        assert result[feature].isna().equals(batch[feature].isna())
+    result = run("mean_shift", batch, "x", severity, seed)
+    std = batch["x"].std(ddof=0)
+    assert result["x"].mean() - batch["x"].mean() == pytest.approx(
+        severity * std, rel=1e-9, abs=1e-9
+    )
+    assert result["x"].std(ddof=0) == pytest.approx(std, rel=1e-9, abs=1e-9)
+    assert result["x"].isna().equals(batch["x"].isna())
 
 
 @SPECIFIC
@@ -368,11 +367,38 @@ def test_mean_shift_moves_the_mean_by_severity_sigmas_and_keeps_the_spread(
 def test_variance_change_scales_the_spread_and_keeps_the_mean(
     batch: pd.DataFrame, severity: float, seed: int
 ) -> None:
-    for feature in ("x", "k"):
-        result = run("variance_change", batch, feature, severity, seed)
-        std = batch[feature].std(ddof=0)
-        assert result[feature].std(ddof=0) == pytest.approx((1 + severity) * std, rel=1e-9)
-        assert result[feature].mean() == pytest.approx(batch[feature].mean(), rel=1e-9, abs=1e-9)
+    result = run("variance_change", batch, "x", severity, seed)
+    std = batch["x"].std(ddof=0)
+    assert result["x"].std(ddof=0) == pytest.approx((1 + severity) * std, rel=1e-9)
+    assert result["x"].mean() == pytest.approx(batch["x"].mean(), rel=1e-9, abs=1e-9)
+
+
+@SPECIFIC
+@given(batches(), st.floats(0.01, 3.0), st.integers(0, 2**32 - 1))
+def test_shifts_keep_integer_features_integer_by_rounding_to_a_neighbour(
+    batch: pd.DataFrame, severity: float, seed: int
+) -> None:
+    mean, std = batch["k"].mean(), batch["k"].std(ddof=0)
+    exact = {
+        "mean_shift": batch["k"] + severity * std,
+        "variance_change": mean + (batch["k"] - mean) * (1 + severity),
+    }
+    for name, target in exact.items():
+        result = run(name, batch, "k", severity, seed)
+        assert result["k"].dtype == np.int64
+        assert ((result["k"] - target).abs() < 1 + 1e-9).all()
+        assert not result["k"].equals(batch["k"])
+
+
+def test_random_rounding_of_integer_features_is_unbiased() -> None:
+    batch = pd.DataFrame({"k": np.random.default_rng(0).poisson(4.0, 50_000)})
+    std = batch["k"].std(ddof=0)
+    shifted = run("mean_shift", batch, "k", 0.01, seed=1)
+    assert shifted["k"].mean() - batch["k"].mean() == pytest.approx(0.01 * std, abs=0.004)
+    assert (shifted["k"] != batch["k"]).mean() == pytest.approx(0.01 * std, abs=0.004)
+    stretched = run("variance_change", batch, "k", 0.25, seed=1)
+    assert stretched["k"].std(ddof=0) == pytest.approx(1.25 * std, rel=0.02)
+    assert stretched["k"].mean() == pytest.approx(batch["k"].mean(), abs=0.02)
 
 
 @SPECIFIC

@@ -2,9 +2,9 @@
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
-> **Status: work in progress (phase 1 of 3).** The distance functions and the fault injectors exist
-> and are tested; the benchmark that connects them does not.
-> There are no benchmark results yet, so this README makes no claim about which method is better.
+> **Status: work in progress (phase 1 of 3).** The benchmark runs end to end and is tested on
+> synthetic data. The full runs (synthetic and Covertype) are not published yet, so this README
+> makes no claim about which method is better.
 
 The goal is to measure, not to assume: inject known data faults (a feature pinned to `-1`, a dropped
 column, a unit change, a distribution shift, a feature computed with future information) and report
@@ -23,6 +23,11 @@ Scope, data-security rules, evaluation-leakage rules and acceptance criteria: [`
   change, new category, out-of-domain values, missing values, unit change, mean shift, variance
   change, duplicated rows, time travel, and a tiny-noise negative control), each a pure, seeded
   function with a documented severity unit.
+- `mlguard.bench`: the benchmark. Reference statistics from the reference split, thresholds
+  calibrated on clean batches of a separate split to a 1% false-positive target, faults injected into
+  evaluation batches only, and a model trained on the reference split and scored on a held-out split
+  to see whether an alarm matters. Fixed "textbook" rules (`p < 0.05`, `PSI > 0.2`) are measured next
+  to the calibrated ones. Output: a JSON result and a generated Markdown report.
 
 ## Quick start
 
@@ -32,7 +37,11 @@ cd ml-data-guard
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 pytest
+python -m mlguard.bench --config benchmarks/configs/smoke.json --out smoke.json --report smoke.md
 ```
+
+The last command is a small synthetic run (under a minute) that writes the same kind of report as the
+full runs. Configs and how to run them: [`benchmarks/README.md`](benchmarks/README.md).
 
 ## Testing
 
@@ -42,7 +51,7 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
 **What is verified**
 
 - **Distances:** hand-computed values; agreement with SciPy as an independent oracle (KL, JS,
-  chi-square); property-based checks of identity, symmetry, bounds, `L-inf <= L1 / 2`, Pinsker's
+  chi-square, KS); property-based checks of identity, symmetry, bounds, `L-inf <= L1 / 2`, Pinsker's
   inequality and the data-processing inequality (merging categories never increases a distance).
 - **Binning:** every row is counted exactly once; unseen categories, missing values and values
   outside the reference range each have a bucket; edges do not depend on the batch under test.
@@ -51,23 +60,31 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
   severity changes at least one row, and the changes at a small severity are a subset of those at a
   larger one; plus the meaning of each fault (exact fraction of rows, mean moved by exactly
   `severity` standard deviations, time travel reads only future rows and never crosses a group).
-- **Failure handling:** unnormalised, negative, non-finite, empty or misaligned input raises
-  `ValueError` instead of returning a plausible number.
+- **Evaluation leakage:** the four splits are disjoint and complete; thresholds and reference
+  statistics stay identical when the evaluation and held-out rows are replaced by garbage; the model
+  is trained on the reference split only.
+- **Benchmark results:** the same config gives a byte-identical JSON file; clean batches and the
+  tiny-noise control stay near the calibrated false-positive rate; strong faults are found; a time
+  shift changes the model's accuracy while the distribution distances stay silent (the expected
+  blind spot); duplicated rows keep their labels.
+- **Failure handling:** unnormalised, negative, non-finite, empty or misaligned input, unknown
+  config keys and damaged data files raise an error instead of returning a plausible number.
 - **Security and hygiene:** no socket can be opened during tests; no data, secret or large file is
   tracked; the package imports no `pickle`-like or network module and calls no `eval`/`exec`.
 
 **How the tests were checked:** `python tools/mutation_check.py` re-introduces known bugs one at a
-time (for example `L-inf` returning a sum, KL with swapped arguments, wrong chi-square degrees of
-freedom, an injector that modifies its input or ignores the seed, time travel that reads the past)
-and requires the suite to fail for each of them.
-The list is hand-written and targeted; it is not exhaustive mutation testing.
+time (for example `L-inf` returning a sum, an injector that ignores the seed, thresholds calibrated on
+the evaluation split, a model trained on the held-out split, time-ordered data shuffled before
+splitting) and requires the suite to fail for each of them. The list is hand-written and targeted; it
+is not exhaustive mutation testing.
 
 **Not covered**
 
-- Benchmark, schema, validator and CLI: not implemented yet.
+- Schema, single-batch validator and CLI: not implemented yet.
+- The Covertype loader on the real file: it is tested on a small hand-made archive of the same
+  format; the download script itself is not tested (it is the only code that uses the network).
 - Whether the synthetic faults resemble real incidents: they are simplified, documented models.
 - pandas nullable (`Int64`, `boolean`) and Arrow-backed dtypes in the injectors.
-- Real production data and real incidents; streaming validation; non-tabular data.
 - Numerical behaviour on vectors with more than a few dozen categories or with probabilities
   below `1e-12`.
 

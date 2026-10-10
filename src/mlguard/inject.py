@@ -254,28 +254,59 @@ def unit_change(
     return _with_column(batch, feature, _assign(values, rows, values[rows] * scale))
 
 
+def _keep_integers(original: np.ndarray, moved: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Round ``moved`` back to integers without bias (up with probability = fractional part).
+
+    If rounding happens to undo every change, the value that lies closest to the middle between
+    two integers is rounded the other way, so that a positive severity never returns the original
+    column and no value ends up further than one from its exact target.
+    """
+    floor = np.floor(moved)
+    fraction = moved - floor
+    rounded = floor + (rng.random(moved.size) < fraction)
+    if np.array_equal(rounded, original) and fraction.max() > 0:
+        position = int(np.argmax(np.minimum(fraction, 1.0 - fraction)))
+        rounded[position] = 2 * floor[position] + 1 - rounded[position]
+    return rounded.astype(original.dtype)
+
+
 def mean_shift(
     batch: pd.DataFrame, feature: str, severity: float, rng: np.random.Generator
 ) -> pd.DataFrame:
-    """Add ``severity`` batch standard deviations to every value; the result is float."""
+    """Add ``severity`` batch standard deviations to every value.
+
+    An integer feature stays integer: the shifted values are rounded at random so that the mean
+    still moves by the requested amount on average (a count does not become 4.02).
+    """
     series = _numeric_column(batch, feature, "mean_shift")
     sigmas = _non_negative(severity)
     values = series.to_numpy(dtype=np.float64, copy=True)
     _, std = _spread(values, feature, "mean_shift")
-    return _with_column(batch, feature, values + sigmas * std if sigmas > 0 else series.to_numpy())
+    if sigmas == 0:
+        return batch.copy(deep=True)
+    moved = values + sigmas * std
+    if is_integer_dtype(series.dtype):
+        return _with_column(batch, feature, _keep_integers(series.to_numpy(), moved, rng))
+    return _with_column(batch, feature, moved)
 
 
 def variance_change(
     batch: pd.DataFrame, feature: str, severity: float, rng: np.random.Generator
 ) -> pd.DataFrame:
-    """Stretch the values around the batch mean: the standard deviation grows by 1 + severity."""
+    """Stretch the values around the batch mean: the standard deviation grows by 1 + severity.
+
+    An integer feature stays integer (unbiased random rounding, as in ``mean_shift``).
+    """
     series = _numeric_column(batch, feature, "variance_change")
     growth = _non_negative(severity)
     values = series.to_numpy(dtype=np.float64, copy=True)
     mean, _ = _spread(values, feature, "variance_change")
     if growth == 0:
         return batch.copy(deep=True)
-    return _with_column(batch, feature, mean + (values - mean) * (1.0 + growth))
+    moved = mean + (values - mean) * (1.0 + growth)
+    if is_integer_dtype(series.dtype):
+        return _with_column(batch, feature, _keep_integers(series.to_numpy(), moved, rng))
+    return _with_column(batch, feature, moved)
 
 
 def time_travel(

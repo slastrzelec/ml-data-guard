@@ -212,10 +212,42 @@ def ks_test(sample_a: ArrayLike, sample_b: ArrayLike) -> StatResult:
     cdf_a = np.searchsorted(a, points, side="right") / a.size
     cdf_b = np.searchsorted(b, points, side="right") / b.size
     statistic = float(np.max(np.abs(cdf_a - cdf_b)))
-    effective_n = math.sqrt(a.size * b.size / (a.size + b.size))
+    return StatResult(statistic, _ks_pvalue(statistic, a.size, b.size))
+
+
+def _ks_pvalue(statistic: float, size_a: int, size_b: int) -> float:
+    effective_n = math.sqrt(size_a * size_b / (size_a + size_b))
     scaled = (effective_n + 0.12 + 0.11 / effective_n) * statistic
-    pvalue = float(np.clip(stats.kstwobign.sf(scaled), 0.0, 1.0))
-    return StatResult(statistic, pvalue)
+    return float(np.clip(stats.kstwobign.sf(scaled), 0.0, 1.0))
+
+
+def ks_test_presorted(sample: ArrayLike, sorted_reference: FloatArray) -> StatResult:
+    """Same result as ``ks_test(sample, sorted_reference)`` for a large, already sorted reference.
+
+    Between two neighbouring sample points the sample CDF is flat and the reference CDF only grows,
+    so the largest gap is reached at a sample point: either at it or just before it. That needs
+    ``O(n log N)`` instead of sorting and scanning all ``N`` reference values for every batch.
+    ``sorted_reference`` must be sorted, non-empty and free of NaN; this is not re-checked.
+    """
+    values = np.asarray(sample, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError(f"sample must be one-dimensional, got shape {values.shape}")
+    if values.size == 0:
+        raise ValueError("sample must not be empty")
+    if np.any(np.isnan(values)):
+        raise ValueError("sample must not contain NaN")
+    values = np.sort(values)
+    n, size = values.size, sorted_reference.size
+    at = np.abs(
+        np.searchsorted(values, values, side="right") / n
+        - np.searchsorted(sorted_reference, values, side="right") / size
+    )
+    before = np.abs(
+        np.searchsorted(values, values, side="left") / n
+        - np.searchsorted(sorted_reference, values, side="left") / size
+    )
+    statistic = float(max(at.max(), before.max()))
+    return StatResult(statistic, _ks_pvalue(statistic, n, size))
 
 
 # --------------------------------------------------------------------------- reference-only binning

@@ -1,6 +1,6 @@
 # SPEC: ml-data-guard
 
-Status: **APPROVED v0.2 (2026-10-09).** Scope changes go into this file first.
+Status: **APPROVED v0.3 (2026-10-10).** Scope changes go into this file first.
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
@@ -86,22 +86,74 @@ Severity has one unit per fault, recorded in the fault registry: a fraction of r
 `type_change`, `new_category`, `out_of_domain_numeric`, `missing_rate_increase`, `unit_change`,
 `duplicate_rows`, `tiny_noise`), batch standard deviations (`mean_shift`), relative growth of the standard
 deviation (`variance_change`), a number of time steps (`time_travel`), or none (`dropped_feature` is binary
-and has a single level, an exception to the five-level rule of section 6). A positive severity always
+and has a single level, an exception to the five-level rule of section 6). `mean_shift` and `variance_change` keep an integer feature integer by
+unbiased random rounding (a count does not become 4.02, which a detector would spot for the wrong reason).
+A positive severity always
 changes at least one eligible row, and for a fixed seed the rows changed at one severity stay changed in
 the same way at every larger severity, so detection curves are monotone by construction of the faults.
 
 ## 6. Evaluation methodology
 
-- Three public tabular datasets (section 11). Per dataset: reference / calibration / evaluation / held-out
-  splits, evaluation cut into batches. Online News Popularity is small (about 40k rows): its evaluation batches
-  are bootstrap resamples of the evaluation split and its confidence intervals are expected to be wide.
-- For every fault x severity (>= 5 levels) x seed (>= 30): one faulty batch; clean batches are negatives.
-- Label: "fault injected" (positive) vs "clean" (negative) per batch and per feature where applicable.
-- Metrics: **recall by fault and severity**, **false-positive rate on clean batches** (target set at calibration),
-  alert precision, detection curve vs severity, bootstrap confidence intervals.
-- **Does the alert matter?** For each fault also record the drop of a downstream model's metric on the held-out split.
-  Report where a detector alarms but the model is unaffected (noise) and where the model degrades but nothing alarms.
-- All results come with the exact commit, seeds and config; the report states what is not measured.
+**Data.** Three public tabular datasets (section 11) and two synthetic generators (i.i.d. table, time-ordered
+series). Per dataset four disjoint splits: reference 40% / calibration 25% / evaluation 25% / held-out 10%.
+Calibration and evaluation have the same size on purpose: batches are random subsamples of a finite pool, and
+equal pools give both the same finite-population effect, so the calibrated false-positive rate carries over.
+Time-ordered data: contiguous splits, batches are contiguous windows at random start positions.
+
+**Detectors.** One score per feature and batch, always "batch versus reference":
+
+| Feature kind | Representation (fitted on the reference only) | Detectors |
+|---|---|---|
+| Numeric | 10 quantile bins + exact-value bins + missing bucket | `L-inf`, `L1`, KL, JS, PSI, chi-square on the bins; KS on the raw values |
+| Categorical | reference vocabulary (max 100) + unseen bucket + missing bucket | `L-inf`, `L1`, KL, JS, PSI, chi-square |
+
+KL is KL(batch || reference); KL and PSI use additive smoothing `1e-4`. In a numeric feature every value that
+is not a number (text, `None`) counts as missing; KS ignores missing values, which is reported as a blind spot.
+
+**Two decision rules ("arms").**
+
+1. *Calibrated:* per feature and detector the threshold is the `1 - alpha` quantile of the scores of clean
+   calibration batches, `alpha = 0.01`. Every detector gets the same false-positive budget, so recall is
+   comparable.
+2. *Textbook:* fixed rules as they are used in practice, no calibration: chi-square `p < 0.05`, KS `p < 0.05`,
+   PSI `> 0.2`, PSI `> 0.1`, `L-inf > 0.01`. Reported with their measured false-positive rate.
+
+**Batch sizes.** 1,000 / 10,000 / 100,000 rows on synthetic data (4,000,000 rows, so each pool holds
+1,000,000) to show how each rule depends on the sample size; 1,000 / 10,000 on Covertype (pools of about
+145,000 rows).
+
+**Finite-pool effect (limitation, measured not hidden).** Thresholds are calibrated on one finite split and
+applied to batches of another. Each split deviates from the reference in its own way, which widens the
+null distribution by roughly `batch size / pool size`. The achieved false-positive rate is therefore
+above the 1% target, more so for large batches, and differs slightly between detectors. The report always
+shows the achieved rate with its interval next to recall; recall of two detectors is only comparable when
+their achieved false-positive rates are. This is also what happens in production, where thresholds come
+from a finite window of past data.
+
+**Runs.** 1,000 calibration batches and 1,000 clean evaluation batches per batch size (the clean batches are
+the `natural_daily_variation` control). Per fault x severity (5 levels, section 5) x 100 seeds: one evaluation
+batch, one randomly chosen applicable feature, one injected fault.
+
+**Metrics.**
+
+- False-positive rate per feature (share of clean batch-feature pairs that alarm) and per batch (share of
+  clean batches where any feature alarms; with a dozen features this is several times the per-feature rate).
+- Recall per fault and severity: share of faulty batches where the detector alarms on the faulted feature.
+  `duplicate_rows` touches every feature, so its recall is batch-level and must be read against the batch-level
+  false-positive rate. `dropped_feature` cannot be scored by a distribution distance at all; it is reported as
+  not applicable here and belongs to the schema validator (phase 2).
+- Proportions carry 95% Wilson score intervals; mean changes of the model metric carry 95% bootstrap intervals.
+- **Does the alert matter?** A gradient-boosting model (scikit-learn, optional dependency of the benchmark) is
+  trained once on the reference split. For every fault x severity x seed the same fault is injected into a
+  batch of the held-out split and the change of accuracy against the clean batch is recorded. The report
+  lists faults that alarm without hurting the model and faults that hurt the model without an alarm.
+- Results are written as JSON (config, seeds, package versions, commit) plus a generated Markdown report; the
+  report states what is not measured.
+
+**Reproducibility.** Every random draw comes from a generator keyed by (seed, purpose, batch size, indices), so
+results do not depend on execution order. The same config on the same pinned environment gives a byte-identical
+JSON file (tested on synthetic data). Across machines the model metric may differ in the last digits because of
+multithreaded floating-point sums; detector results do not.
 
 ## 7. Tests (what is verified, what is not)
 
@@ -111,7 +163,7 @@ the same way at every larger severity, so detection curves are monotone by const
 | Schema | inference round-trip (inferred schema accepts its own reference data); serialisation round-trip; no raw rows in snapshot |
 | Validator | each anomaly type is raised by a minimal example and not raised on clean data |
 | Injectors | property-based (hypothesis): input not mutated, index/columns/other features preserved, zero severity -> equal copy, changes nested in severity, seed -> same output; the meaning of every fault (exact fraction of rows, exact shift, future-only time travel); invalid input raises |
-| Benchmark | determinism (same seed -> identical report); negative controls stay below the calibrated FPR |
+| Benchmark | splits are disjoint and complete; thresholds and reference statistics do not change when evaluation or held-out rows are corrupted; determinism (same seed -> identical JSON); clean batches and `tiny_noise` stay near the calibrated FPR; strong faults are found |
 | CLI | exit codes, JSON output schema |
 | Security/hygiene | no network, no tracked data/secrets, no `pickle`/`eval` |
 | Quality gates | `ruff`, `pytest`, coverage threshold, `pip-audit` on Python 3.11 and 3.12 in GitHub Actions |
@@ -127,7 +179,8 @@ distributed scale.
 
 ```
 ml-data-guard/
-  src/mlguard/        distances.py  schema.py  validate.py  compare.py  inject.py  bench.py  cli.py
+  src/mlguard/        distances.py  inject.py  detectors.py  datasets.py  bench.py
+                      schema.py  validate.py  compare.py  cli.py   (phase 2)
   tests/
   tools/              mutation_check.py, data download script
   benchmarks/         configs, results (small, tracked) and generated report
@@ -145,7 +198,8 @@ ml-data-guard/
 ## 10. Acceptance criteria
 
 1. Clean clone: `pip install -e .[dev] && pytest` passes offline with no environment variables.
-2. `mlguard bench` reproduces the published report bit-for-bit from the stored config and seed.
+2. The benchmark (`python -m mlguard.bench`, `mlguard bench` once the CLI exists) reproduces the published
+   report from the stored config and seed on the pinned environment.
 3. The report contains recall per fault/severity, FPR, and the "alert vs model impact" table for every detector.
 4. No data files, secrets or personal data tracked (test enforces it).
 5. README and portfolio page state what is measured and what is not; no claim without a test or a result behind it.

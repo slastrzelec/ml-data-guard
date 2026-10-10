@@ -27,6 +27,10 @@ DISTANCES = "src/mlguard/distances.py"
 INJECT = "src/mlguard/inject.py"
 DISTANCE_TESTS = ("tests/test_distances.py", "tests/test_binning.py")
 INJECT_TESTS = ("tests/test_inject.py",)
+DETECTORS = "src/mlguard/detectors.py"
+BENCH = "src/mlguard/bench.py"
+DETECTOR_TESTS = ("tests/test_detectors.py",)
+BENCH_TESTS = ("tests/test_bench.py",)
 
 
 @dataclass(frozen=True)
@@ -270,15 +274,22 @@ MUTANTS = [
     Mutant(
         "mean_shift is not measured in standard deviations",
         INJECT,
-        "values + sigmas * std if sigmas > 0",
-        "values + sigmas if sigmas > 0",
+        "moved = values + sigmas * std",
+        "moved = values + sigmas",
         INJECT_TESTS,
     ),
     Mutant(
         "variance_change also moves the mean",
         INJECT,
-        "mean + (values - mean) * (1.0 + growth)",
-        "values * (1.0 + growth)",
+        "moved = mean + (values - mean) * (1.0 + growth)",
+        "moved = values * (1.0 + growth)",
+        INJECT_TESTS,
+    ),
+    Mutant(
+        "rounding integer features is biased downwards",
+        INJECT,
+        "rounded = floor + (rng.random(moved.size) < fraction)",
+        "rounded = floor",
         INJECT_TESTS,
     ),
     Mutant(
@@ -315,6 +326,124 @@ MUTANTS = [
         "if isinstance(original, pd.StringDtype) and only_text:",
         "if isinstance(original, pd.StringDtype):",
         INJECT_TESTS,
+    ),
+    Mutant(
+        "presorted ks ignores the gap just before a sample point",
+        DISTANCES,
+        "statistic = float(max(at.max(), before.max()))",
+        "statistic = float(at.max())",
+        DETECTOR_TESTS,
+    ),
+    Mutant(
+        "text that looks like a number is parsed in a numeric feature",
+        DETECTORS,
+        "            result[position] = float(value)",
+        "            result[position] = float(value)\n"
+        "        elif isinstance(value, str):\n"
+        "            result[position] = float(value)",
+        DETECTOR_TESTS,
+    ),
+    Mutant(
+        "booleans count as numbers",
+        DETECTORS,
+        "if is_number and not isinstance(value, bool | np.bool_):",
+        "if is_number:",
+        DETECTOR_TESTS,
+    ),
+    Mutant(
+        "textbook rule alarms on large p-values",
+        DETECTORS,
+        'return bool(value < threshold) if direction == "below" else bool(value > threshold)',
+        "return bool(value > threshold)",
+        DETECTOR_TESTS,
+    ),
+    Mutant(
+        "missing categories are coded as unseen",
+        DETECTORS,
+        "            codes[position] = missing",
+        "            codes[position] = unseen",
+        DETECTOR_TESTS,
+    ),
+    Mutant(
+        "reference statistics are fitted on every row",
+        BENCH,
+        "                column[reference_rows],",
+        "                column,",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "thresholds are calibrated on the evaluation split",
+        BENCH,
+        "thresholds = calibrate(scorer, splits.calibration, batch_size, config)",
+        "thresholds = calibrate(scorer, splits.evaluation, batch_size, config)",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "the model is trained on the held-out split",
+        BENCH,
+        "model = _Model(scorer, splits.reference, config)",
+        "model = _Model(scorer, splits.held_out, config)",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "time-ordered data is shuffled before splitting",
+        BENCH,
+        "order = np.arange(n_rows) if time_ordered else",
+        "order = np.arange(n_rows) if False else",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "splits overlap",
+        BENCH,
+        "    parts = np.split(order, cuts)",
+        "    parts = np.split(order, cuts)\n    parts[2] = parts[1]",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "batches are drawn with replacement",
+        BENCH,
+        "return rng.choice(pool, size=batch_size, replace=False)",
+        "return rng.choice(pool, size=batch_size, replace=True)",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "threshold is the wrong quantile",
+        BENCH,
+        "level = 1.0 - config.target_fpr",
+        "level = 0.5",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "random draws depend on execution order",
+        BENCH,
+        "    return np.random.default_rng([seed, *key])",
+        "    return np.random.default_rng()",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "a dropped feature is scored as if it were there",
+        BENCH,
+        "                if not spec.preserves_shape:\n                    continue",
+        "                if not spec.preserves_shape:\n"
+        "                    faulty = dataset.frame.iloc[rows]",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "wilson interval is not clamped at zero successes",
+        BENCH,
+        "low = 0.0 if successes == 0 else max(0.0, centre - half)",
+        "low = centre - half",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "rewritten rows are scored against the labels of the rows they replaced",
+        BENCH,
+        "        labels = batch[self.dataset.target].to_numpy()\n"
+        "        return self.estimator.predict(self.encode(batch)) == labels",
+        "        labels = self.dataset.frame[self.dataset.target].to_numpy()\n"
+        "        labels = labels[batch.index.to_numpy()]\n"
+        "        return self.estimator.predict(self.encode(batch)) == labels",
+        BENCH_TESTS,
     ),
 ]
 

@@ -18,7 +18,7 @@ FORBIDDEN_SUFFIXES = {
     ".pkl", ".pickle", ".joblib", ".zip", ".gz", ".bz2", ".xz", ".7z", ".tar",
     ".xls", ".xlsx", ".sqlite", ".db", ".pem", ".key",
 }  # fmt: skip
-MAX_TRACKED_FILE_BYTES = 200_000
+MAX_TRACKED_FILE_BYTES = 500_000
 
 UNSAFE_MODULES = {"pickle", "cPickle", "dill", "cloudpickle", "joblib", "marshal", "shelve"}
 NETWORK_MODULES = {
