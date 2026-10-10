@@ -2,8 +2,9 @@
 
 - Data: synthetic, 4,000,000 rows, 5 numeric and 2 categorical features.
 - Splits (rows): reference 1,600,000, calibration 1,000,000, evaluation 1,000,000, held-out 400,000.
+- Reference: static, the reference split.
 - Seed 20261010; 1000 calibration batches, 1000 clean batches, 100 faulty batches per fault and severity; target false-positive rate 0.01.
-- Commit: 0e99fae; ml-data-guard 0.1.0, numpy 2.4.6, pandas 3.0.6, python 3.11.17, scikit-learn 1.9.1, scipy 1.17.1.
+- Commit: f7fd371; ml-data-guard 0.1.0, numpy 2.4.6, pandas 3.0.6, python 3.11.17, scikit-learn 1.9.1, scipy 1.17.1.
 
 Rates are followed by 95% Wilson intervals where space allows; every interval is in the
 JSON file. With 100 faulty batches a recall of 0.50 has an interval of
@@ -27,6 +28,7 @@ about +/- 0.10.
 | `psi>0.2` (textbook) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 | `psi>0.1` (textbook) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 | `linf>0.01` (textbook) | 0.932 [0.925, 0.937] | 1.000 [0.996, 1.000] |
+| `schema` (inferred schema) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 
 ### Recall, calibrated thresholds
 
@@ -79,58 +81,59 @@ about +/- 0.10.
 | `variance_change` | 0.25 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
 | `variance_change` | 0.5 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
 
-### Recall, textbook rules
+### Recall, textbook rules and schema check
 
-| Fault | Severity | Level | `chi2 p<0.05` | `ks p<0.05` | `psi>0.2` | `psi>0.1` | `linf>0.01` |
-|---|---|---|---|---|---|---|---|
-| `duplicate_rows` | 0.001 | batch | 0.43 | 0.29 | 0.00 | 0.00 | 1.00 |
-| `duplicate_rows` | 0.005 | batch | 0.24 | 0.20 | 0.00 | 0.00 | 1.00 |
-| `duplicate_rows` | 0.01 | batch | 0.35 | 0.23 | 0.00 | 0.00 | 1.00 |
-| `duplicate_rows` | 0.05 | batch | 0.39 | 0.24 | 0.00 | 0.00 | 1.00 |
-| `duplicate_rows` | 0.2 | batch | 0.75 | 0.34 | 0.00 | 0.00 | 1.00 |
-| `mean_shift` | 0.01 | feature | 0.26 | 0.49 | 0.21 | 0.21 | 0.95 |
-| `mean_shift` | 0.05 | feature | 0.57 | 0.75 | 0.27 | 0.31 | 0.99 |
-| `mean_shift` | 0.1 | feature | 0.69 | 0.82 | 0.36 | 0.37 | 1.00 |
-| `mean_shift` | 0.25 | feature | 1.00 | 1.00 | 0.57 | 0.58 | 1.00 |
-| `mean_shift` | 0.5 | feature | 1.00 | 1.00 | 0.99 | 1.00 | 1.00 |
-| `missing_rate_increase` | 0.001 | feature | 0.93 | 0.04 | 0.00 | 0.00 | 0.91 |
-| `missing_rate_increase` | 0.005 | feature | 0.87 | 0.04 | 0.00 | 0.00 | 0.91 |
-| `missing_rate_increase` | 0.01 | feature | 0.84 | 0.01 | 0.00 | 0.00 | 0.99 |
-| `missing_rate_increase` | 0.05 | feature | 1.00 | 0.03 | 0.91 | 0.91 | 1.00 |
-| `missing_rate_increase` | 0.2 | feature | 1.00 | 0.07 | 1.00 | 1.00 | 1.00 |
-| `new_category` | 0.001 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.94 |
-| `new_category` | 0.005 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.85 |
-| `new_category` | 0.01 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.89 |
-| `new_category` | 0.05 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 |
-| `new_category` | 0.2 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 |
-| `out_of_domain_numeric` | 0.001 | feature | 0.04 | 0.04 | 0.00 | 0.00 | 0.95 |
-| `out_of_domain_numeric` | 0.005 | feature | 0.09 | 0.06 | 0.00 | 0.00 | 0.95 |
-| `out_of_domain_numeric` | 0.01 | feature | 0.08 | 0.09 | 0.00 | 0.00 | 0.99 |
-| `out_of_domain_numeric` | 0.05 | feature | 0.95 | 1.00 | 0.00 | 0.00 | 1.00 |
-| `out_of_domain_numeric` | 0.2 | feature | 1.00 | 1.00 | 0.96 | 1.00 | 1.00 |
-| `pinned_value` | 0.001 | feature | 0.55 | 0.12 | 0.00 | 0.00 | 0.90 |
-| `pinned_value` | 0.005 | feature | 0.49 | 0.05 | 0.00 | 0.00 | 0.95 |
-| `pinned_value` | 0.01 | feature | 0.45 | 0.07 | 0.00 | 0.00 | 0.93 |
-| `pinned_value` | 0.05 | feature | 0.96 | 0.98 | 0.47 | 0.47 | 1.00 |
-| `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 0.98 | 1.00 | 1.00 |
-| `tiny_noise` (control) | 0.0001 | feature | 0.06 | 0.05 | 0.00 | 0.00 | 0.92 |
-| `type_change` | 0.001 | feature | 0.81 | 0.01 | 0.00 | 0.00 | 0.98 |
-| `type_change` | 0.005 | feature | 0.75 | 0.05 | 0.00 | 0.00 | 0.98 |
-| `type_change` | 0.01 | feature | 0.86 | 0.03 | 0.00 | 0.00 | 1.00 |
-| `type_change` | 0.05 | feature | 1.00 | 0.03 | 0.74 | 0.74 | 1.00 |
-| `type_change` | 0.2 | feature | 1.00 | 0.01 | 1.00 | 1.00 | 1.00 |
-| `unit_change` | 0.001 | feature | 0.08 | 0.05 | 0.00 | 0.00 | 0.93 |
-| `unit_change` | 0.005 | feature | 0.10 | 0.03 | 0.00 | 0.00 | 0.95 |
-| `unit_change` | 0.01 | feature | 0.09 | 0.04 | 0.00 | 0.00 | 0.96 |
-| `unit_change` | 0.05 | feature | 0.83 | 0.87 | 0.00 | 0.00 | 1.00 |
-| `unit_change` | 0.2 | feature | 1.00 | 1.00 | 0.72 | 1.00 | 1.00 |
-| `variance_change` | 0.02 | feature | 0.18 | 0.33 | 0.11 | 0.11 | 0.98 |
-| `variance_change` | 0.05 | feature | 0.59 | 0.62 | 0.25 | 0.25 | 1.00 |
-| `variance_change` | 0.1 | feature | 0.88 | 0.66 | 0.18 | 0.19 | 1.00 |
-| `variance_change` | 0.25 | feature | 1.00 | 1.00 | 0.38 | 0.74 | 1.00 |
-| `variance_change` | 0.5 | feature | 1.00 | 1.00 | 0.86 | 1.00 | 1.00 |
+| Fault | Severity | Level | `chi2 p<0.05` | `ks p<0.05` | `psi>0.2` | `psi>0.1` | `linf>0.01` | `schema` |
+|---|---|---|---|---|---|---|---|---|
+| `dropped_feature` | 1 | feature | n/a | n/a | n/a | n/a | n/a | 1.00 |
+| `duplicate_rows` | 0.001 | batch | 0.43 | 0.29 | 0.00 | 0.00 | 1.00 | 0.00 |
+| `duplicate_rows` | 0.005 | batch | 0.24 | 0.20 | 0.00 | 0.00 | 1.00 | 0.00 |
+| `duplicate_rows` | 0.01 | batch | 0.35 | 0.23 | 0.00 | 0.00 | 1.00 | 0.00 |
+| `duplicate_rows` | 0.05 | batch | 0.39 | 0.24 | 0.00 | 0.00 | 1.00 | 0.00 |
+| `duplicate_rows` | 0.2 | batch | 0.75 | 0.34 | 0.00 | 0.00 | 1.00 | 0.00 |
+| `mean_shift` | 0.01 | feature | 0.26 | 0.49 | 0.21 | 0.21 | 0.95 | 0.00 |
+| `mean_shift` | 0.05 | feature | 0.57 | 0.75 | 0.27 | 0.31 | 0.99 | 0.00 |
+| `mean_shift` | 0.1 | feature | 0.69 | 0.82 | 0.36 | 0.37 | 1.00 | 0.00 |
+| `mean_shift` | 0.25 | feature | 1.00 | 1.00 | 0.57 | 0.58 | 1.00 | 0.00 |
+| `mean_shift` | 0.5 | feature | 1.00 | 1.00 | 0.99 | 1.00 | 1.00 | 0.23 |
+| `missing_rate_increase` | 0.001 | feature | 0.93 | 0.04 | 0.00 | 0.00 | 0.91 | 0.93 |
+| `missing_rate_increase` | 0.005 | feature | 0.87 | 0.04 | 0.00 | 0.00 | 0.91 | 0.87 |
+| `missing_rate_increase` | 0.01 | feature | 0.84 | 0.01 | 0.00 | 0.00 | 0.99 | 0.81 |
+| `missing_rate_increase` | 0.05 | feature | 1.00 | 0.03 | 0.91 | 0.91 | 1.00 | 1.00 |
+| `missing_rate_increase` | 0.2 | feature | 1.00 | 0.07 | 1.00 | 1.00 | 1.00 | 1.00 |
+| `new_category` | 0.001 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.94 | 1.00 |
+| `new_category` | 0.005 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.85 | 1.00 |
+| `new_category` | 0.01 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.89 | 1.00 |
+| `new_category` | 0.05 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 | 1.00 |
+| `new_category` | 0.2 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 | 1.00 |
+| `out_of_domain_numeric` | 0.001 | feature | 0.04 | 0.04 | 0.00 | 0.00 | 0.95 | 0.45 |
+| `out_of_domain_numeric` | 0.005 | feature | 0.09 | 0.06 | 0.00 | 0.00 | 0.95 | 0.48 |
+| `out_of_domain_numeric` | 0.01 | feature | 0.08 | 0.09 | 0.00 | 0.00 | 0.99 | 0.63 |
+| `out_of_domain_numeric` | 0.05 | feature | 0.95 | 1.00 | 0.00 | 0.00 | 1.00 | 0.68 |
+| `out_of_domain_numeric` | 0.2 | feature | 1.00 | 1.00 | 0.96 | 1.00 | 1.00 | 0.67 |
+| `pinned_value` | 0.001 | feature | 0.55 | 0.12 | 0.00 | 0.00 | 0.90 | 0.88 |
+| `pinned_value` | 0.005 | feature | 0.49 | 0.05 | 0.00 | 0.00 | 0.95 | 0.78 |
+| `pinned_value` | 0.01 | feature | 0.45 | 0.07 | 0.00 | 0.00 | 0.93 | 0.89 |
+| `pinned_value` | 0.05 | feature | 0.96 | 0.98 | 0.47 | 0.47 | 1.00 | 0.92 |
+| `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 0.98 | 1.00 | 1.00 | 0.89 |
+| `tiny_noise` (control) | 0.0001 | feature | 0.06 | 0.05 | 0.00 | 0.00 | 0.92 | 0.00 |
+| `type_change` | 0.001 | feature | 0.81 | 0.01 | 0.00 | 0.00 | 0.98 | 1.00 |
+| `type_change` | 0.005 | feature | 0.75 | 0.05 | 0.00 | 0.00 | 0.98 | 1.00 |
+| `type_change` | 0.01 | feature | 0.86 | 0.03 | 0.00 | 0.00 | 1.00 | 1.00 |
+| `type_change` | 0.05 | feature | 1.00 | 0.03 | 0.74 | 0.74 | 1.00 | 1.00 |
+| `type_change` | 0.2 | feature | 1.00 | 0.01 | 1.00 | 1.00 | 1.00 | 1.00 |
+| `unit_change` | 0.001 | feature | 0.08 | 0.05 | 0.00 | 0.00 | 0.93 | 1.00 |
+| `unit_change` | 0.005 | feature | 0.10 | 0.03 | 0.00 | 0.00 | 0.95 | 1.00 |
+| `unit_change` | 0.01 | feature | 0.09 | 0.04 | 0.00 | 0.00 | 0.96 | 1.00 |
+| `unit_change` | 0.05 | feature | 0.83 | 0.87 | 0.00 | 0.00 | 1.00 | 1.00 |
+| `unit_change` | 0.2 | feature | 1.00 | 1.00 | 0.72 | 1.00 | 1.00 | 1.00 |
+| `variance_change` | 0.02 | feature | 0.18 | 0.33 | 0.11 | 0.11 | 0.98 | 0.33 |
+| `variance_change` | 0.05 | feature | 0.59 | 0.62 | 0.25 | 0.25 | 1.00 | 0.64 |
+| `variance_change` | 0.1 | feature | 0.88 | 0.66 | 0.18 | 0.19 | 1.00 | 0.55 |
+| `variance_change` | 0.25 | feature | 1.00 | 1.00 | 0.38 | 0.74 | 1.00 | 0.83 |
+| `variance_change` | 0.5 | feature | 1.00 | 1.00 | 0.86 | 1.00 | 1.00 | 0.87 |
 
-Not scorable by a distribution distance (the column is gone; this is a schema check): `dropped_feature`.
+Not scorable by a distribution distance (the column is gone; only the schema check applies): `dropped_feature`.
 
 ## Batch size 10,000
 
@@ -150,6 +153,7 @@ Not scorable by a distribution distance (the column is gone; this is a schema ch
 | `psi>0.2` (textbook) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 | `psi>0.1` (textbook) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 | `linf>0.01` (textbook) | 0.027 [0.023, 0.031] | 0.175 [0.153, 0.200] |
+| `schema` (inferred schema) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 
 ### Recall, calibrated thresholds
 
@@ -202,58 +206,59 @@ Not scorable by a distribution distance (the column is gone; this is a schema ch
 | `variance_change` | 0.25 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
 | `variance_change` | 0.5 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
 
-### Recall, textbook rules
+### Recall, textbook rules and schema check
 
-| Fault | Severity | Level | `chi2 p<0.05` | `ks p<0.05` | `psi>0.2` | `psi>0.1` | `linf>0.01` |
-|---|---|---|---|---|---|---|---|
-| `duplicate_rows` | 0.001 | batch | 0.19 | 0.13 | 0.00 | 0.00 | 0.14 |
-| `duplicate_rows` | 0.005 | batch | 0.29 | 0.27 | 0.00 | 0.00 | 0.16 |
-| `duplicate_rows` | 0.01 | batch | 0.36 | 0.20 | 0.00 | 0.00 | 0.21 |
-| `duplicate_rows` | 0.05 | batch | 0.46 | 0.28 | 0.00 | 0.00 | 0.22 |
-| `duplicate_rows` | 0.2 | batch | 0.77 | 0.45 | 0.00 | 0.00 | 0.41 |
-| `mean_shift` | 0.01 | feature | 0.48 | 0.67 | 0.21 | 0.21 | 0.42 |
-| `mean_shift` | 0.05 | feature | 0.97 | 0.99 | 0.27 | 0.27 | 0.81 |
-| `mean_shift` | 0.1 | feature | 1.00 | 1.00 | 0.37 | 0.37 | 1.00 |
-| `mean_shift` | 0.25 | feature | 1.00 | 1.00 | 0.57 | 0.57 | 1.00 |
-| `mean_shift` | 0.5 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `missing_rate_increase` | 0.001 | feature | 0.93 | 0.03 | 0.00 | 0.00 | 0.01 |
-| `missing_rate_increase` | 0.005 | feature | 0.94 | 0.09 | 0.00 | 0.00 | 0.04 |
-| `missing_rate_increase` | 0.01 | feature | 1.00 | 0.01 | 0.00 | 0.00 | 0.18 |
-| `missing_rate_increase` | 0.05 | feature | 1.00 | 0.03 | 0.91 | 0.91 | 1.00 |
-| `missing_rate_increase` | 0.2 | feature | 1.00 | 0.04 | 1.00 | 1.00 | 1.00 |
-| `new_category` | 0.001 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.03 |
-| `new_category` | 0.005 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.07 |
-| `new_category` | 0.01 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.12 |
-| `new_category` | 0.05 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 |
-| `new_category` | 0.2 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 |
-| `out_of_domain_numeric` | 0.001 | feature | 0.05 | 0.04 | 0.00 | 0.00 | 0.03 |
-| `out_of_domain_numeric` | 0.005 | feature | 0.16 | 0.06 | 0.00 | 0.00 | 0.06 |
-| `out_of_domain_numeric` | 0.01 | feature | 0.62 | 0.33 | 0.00 | 0.00 | 0.39 |
-| `out_of_domain_numeric` | 0.05 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 1.00 |
-| `out_of_domain_numeric` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `pinned_value` | 0.001 | feature | 0.52 | 0.03 | 0.00 | 0.00 | 0.03 |
-| `pinned_value` | 0.005 | feature | 0.50 | 0.05 | 0.00 | 0.00 | 0.03 |
-| `pinned_value` | 0.01 | feature | 0.71 | 0.24 | 0.00 | 0.00 | 0.24 |
-| `pinned_value` | 0.05 | feature | 1.00 | 1.00 | 0.47 | 0.47 | 1.00 |
-| `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `tiny_noise` (control) | 0.0001 | feature | 0.04 | 0.05 | 0.00 | 0.00 | 0.02 |
-| `type_change` | 0.001 | feature | 0.78 | 0.05 | 0.00 | 0.00 | 0.06 |
-| `type_change` | 0.005 | feature | 0.87 | 0.04 | 0.00 | 0.00 | 0.03 |
-| `type_change` | 0.01 | feature | 1.00 | 0.06 | 0.00 | 0.00 | 0.16 |
-| `type_change` | 0.05 | feature | 1.00 | 0.03 | 0.74 | 0.74 | 1.00 |
-| `type_change` | 0.2 | feature | 1.00 | 0.03 | 1.00 | 1.00 | 1.00 |
-| `unit_change` | 0.001 | feature | 0.08 | 0.05 | 0.00 | 0.00 | 0.00 |
-| `unit_change` | 0.005 | feature | 0.18 | 0.06 | 0.00 | 0.00 | 0.04 |
-| `unit_change` | 0.01 | feature | 0.51 | 0.28 | 0.00 | 0.00 | 0.33 |
-| `unit_change` | 0.05 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 1.00 |
-| `unit_change` | 0.2 | feature | 1.00 | 1.00 | 0.77 | 1.00 | 1.00 |
-| `variance_change` | 0.02 | feature | 0.59 | 0.66 | 0.11 | 0.11 | 0.45 |
-| `variance_change` | 0.05 | feature | 1.00 | 0.89 | 0.25 | 0.25 | 0.96 |
-| `variance_change` | 0.1 | feature | 1.00 | 1.00 | 0.18 | 0.18 | 1.00 |
-| `variance_change` | 0.25 | feature | 1.00 | 1.00 | 0.38 | 0.78 | 1.00 |
-| `variance_change` | 0.5 | feature | 1.00 | 1.00 | 0.83 | 1.00 | 1.00 |
+| Fault | Severity | Level | `chi2 p<0.05` | `ks p<0.05` | `psi>0.2` | `psi>0.1` | `linf>0.01` | `schema` |
+|---|---|---|---|---|---|---|---|---|
+| `dropped_feature` | 1 | feature | n/a | n/a | n/a | n/a | n/a | 1.00 |
+| `duplicate_rows` | 0.001 | batch | 0.19 | 0.13 | 0.00 | 0.00 | 0.14 | 0.00 |
+| `duplicate_rows` | 0.005 | batch | 0.29 | 0.27 | 0.00 | 0.00 | 0.16 | 0.00 |
+| `duplicate_rows` | 0.01 | batch | 0.36 | 0.20 | 0.00 | 0.00 | 0.21 | 0.00 |
+| `duplicate_rows` | 0.05 | batch | 0.46 | 0.28 | 0.00 | 0.00 | 0.22 | 0.00 |
+| `duplicate_rows` | 0.2 | batch | 0.77 | 0.45 | 0.00 | 0.00 | 0.41 | 0.00 |
+| `mean_shift` | 0.01 | feature | 0.48 | 0.67 | 0.21 | 0.21 | 0.42 | 0.00 |
+| `mean_shift` | 0.05 | feature | 0.97 | 0.99 | 0.27 | 0.27 | 0.81 | 0.00 |
+| `mean_shift` | 0.1 | feature | 1.00 | 1.00 | 0.37 | 0.37 | 1.00 | 0.00 |
+| `mean_shift` | 0.25 | feature | 1.00 | 1.00 | 0.57 | 0.57 | 1.00 | 0.00 |
+| `mean_shift` | 0.5 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.23 |
+| `missing_rate_increase` | 0.001 | feature | 0.93 | 0.03 | 0.00 | 0.00 | 0.01 | 0.93 |
+| `missing_rate_increase` | 0.005 | feature | 0.94 | 0.09 | 0.00 | 0.00 | 0.04 | 0.87 |
+| `missing_rate_increase` | 0.01 | feature | 1.00 | 0.01 | 0.00 | 0.00 | 0.18 | 0.81 |
+| `missing_rate_increase` | 0.05 | feature | 1.00 | 0.03 | 0.91 | 0.91 | 1.00 | 1.00 |
+| `missing_rate_increase` | 0.2 | feature | 1.00 | 0.04 | 1.00 | 1.00 | 1.00 | 1.00 |
+| `new_category` | 0.001 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.03 | 1.00 |
+| `new_category` | 0.005 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.07 | 1.00 |
+| `new_category` | 0.01 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.12 | 1.00 |
+| `new_category` | 0.05 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 | 1.00 |
+| `new_category` | 0.2 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 | 1.00 |
+| `out_of_domain_numeric` | 0.001 | feature | 0.05 | 0.04 | 0.00 | 0.00 | 0.03 | 0.69 |
+| `out_of_domain_numeric` | 0.005 | feature | 0.16 | 0.06 | 0.00 | 0.00 | 0.06 | 0.68 |
+| `out_of_domain_numeric` | 0.01 | feature | 0.62 | 0.33 | 0.00 | 0.00 | 0.39 | 0.74 |
+| `out_of_domain_numeric` | 0.05 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 1.00 | 0.77 |
+| `out_of_domain_numeric` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.78 |
+| `pinned_value` | 0.001 | feature | 0.52 | 0.03 | 0.00 | 0.00 | 0.03 | 0.88 |
+| `pinned_value` | 0.005 | feature | 0.50 | 0.05 | 0.00 | 0.00 | 0.03 | 0.78 |
+| `pinned_value` | 0.01 | feature | 0.71 | 0.24 | 0.00 | 0.00 | 0.24 | 0.89 |
+| `pinned_value` | 0.05 | feature | 1.00 | 1.00 | 0.47 | 0.47 | 1.00 | 0.92 |
+| `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.89 |
+| `tiny_noise` (control) | 0.0001 | feature | 0.04 | 0.05 | 0.00 | 0.00 | 0.02 | 0.00 |
+| `type_change` | 0.001 | feature | 0.78 | 0.05 | 0.00 | 0.00 | 0.06 | 1.00 |
+| `type_change` | 0.005 | feature | 0.87 | 0.04 | 0.00 | 0.00 | 0.03 | 1.00 |
+| `type_change` | 0.01 | feature | 1.00 | 0.06 | 0.00 | 0.00 | 0.16 | 1.00 |
+| `type_change` | 0.05 | feature | 1.00 | 0.03 | 0.74 | 0.74 | 1.00 | 1.00 |
+| `type_change` | 0.2 | feature | 1.00 | 0.03 | 1.00 | 1.00 | 1.00 | 1.00 |
+| `unit_change` | 0.001 | feature | 0.08 | 0.05 | 0.00 | 0.00 | 0.00 | 1.00 |
+| `unit_change` | 0.005 | feature | 0.18 | 0.06 | 0.00 | 0.00 | 0.04 | 1.00 |
+| `unit_change` | 0.01 | feature | 0.51 | 0.28 | 0.00 | 0.00 | 0.33 | 1.00 |
+| `unit_change` | 0.05 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 1.00 | 1.00 |
+| `unit_change` | 0.2 | feature | 1.00 | 1.00 | 0.77 | 1.00 | 1.00 | 1.00 |
+| `variance_change` | 0.02 | feature | 0.59 | 0.66 | 0.11 | 0.11 | 0.45 | 0.58 |
+| `variance_change` | 0.05 | feature | 1.00 | 0.89 | 0.25 | 0.25 | 0.96 | 0.64 |
+| `variance_change` | 0.1 | feature | 1.00 | 1.00 | 0.18 | 0.18 | 1.00 | 0.55 |
+| `variance_change` | 0.25 | feature | 1.00 | 1.00 | 0.38 | 0.78 | 1.00 | 0.86 |
+| `variance_change` | 0.5 | feature | 1.00 | 1.00 | 0.83 | 1.00 | 1.00 | 0.99 |
 
-Not scorable by a distribution distance (the column is gone; this is a schema check): `dropped_feature`.
+Not scorable by a distribution distance (the column is gone; only the schema check applies): `dropped_feature`.
 
 ## Batch size 100,000
 
@@ -273,6 +278,7 @@ Not scorable by a distribution distance (the column is gone; this is a schema ch
 | `psi>0.2` (textbook) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 | `psi>0.1` (textbook) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 | `linf>0.01` (textbook) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
+| `schema` (inferred schema) | 0.000 [0.000, 0.001] | 0.000 [0.000, 0.004] |
 
 ### Recall, calibrated thresholds
 
@@ -325,112 +331,113 @@ Not scorable by a distribution distance (the column is gone; this is a schema ch
 | `variance_change` | 0.25 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
 | `variance_change` | 0.5 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
 
-### Recall, textbook rules
+### Recall, textbook rules and schema check
 
-| Fault | Severity | Level | `chi2 p<0.05` | `ks p<0.05` | `psi>0.2` | `psi>0.1` | `linf>0.01` |
-|---|---|---|---|---|---|---|---|
-| `duplicate_rows` | 0.001 | batch | 0.30 | 0.16 | 0.00 | 0.00 | 0.00 |
-| `duplicate_rows` | 0.005 | batch | 0.32 | 0.25 | 0.00 | 0.00 | 0.00 |
-| `duplicate_rows` | 0.01 | batch | 0.39 | 0.15 | 0.00 | 0.00 | 0.00 |
-| `duplicate_rows` | 0.05 | batch | 0.41 | 0.20 | 0.00 | 0.00 | 0.00 |
-| `duplicate_rows` | 0.2 | batch | 0.74 | 0.43 | 0.00 | 0.00 | 0.00 |
-| `mean_shift` | 0.01 | feature | 0.83 | 0.83 | 0.21 | 0.21 | 0.39 |
-| `mean_shift` | 0.05 | feature | 1.00 | 1.00 | 0.27 | 0.27 | 0.77 |
-| `mean_shift` | 0.1 | feature | 1.00 | 1.00 | 0.37 | 0.37 | 1.00 |
-| `mean_shift` | 0.25 | feature | 1.00 | 1.00 | 0.57 | 0.57 | 1.00 |
-| `mean_shift` | 0.5 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `missing_rate_increase` | 0.001 | feature | 0.93 | 0.03 | 0.00 | 0.00 | 0.00 |
-| `missing_rate_increase` | 0.005 | feature | 1.00 | 0.01 | 0.00 | 0.00 | 0.00 |
-| `missing_rate_increase` | 0.01 | feature | 1.00 | 0.03 | 0.00 | 0.00 | 0.08 |
-| `missing_rate_increase` | 0.05 | feature | 1.00 | 0.08 | 0.91 | 0.91 | 1.00 |
-| `missing_rate_increase` | 0.2 | feature | 1.00 | 0.03 | 1.00 | 1.00 | 1.00 |
-| `new_category` | 0.001 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.00 |
-| `new_category` | 0.005 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.00 |
-| `new_category` | 0.01 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.00 |
-| `new_category` | 0.05 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 |
-| `new_category` | 0.2 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 |
-| `out_of_domain_numeric` | 0.001 | feature | 0.11 | 0.08 | 0.00 | 0.00 | 0.00 |
-| `out_of_domain_numeric` | 0.005 | feature | 0.94 | 1.00 | 0.00 | 0.00 | 0.00 |
-| `out_of_domain_numeric` | 0.01 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 0.26 |
-| `out_of_domain_numeric` | 0.05 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 1.00 |
-| `out_of_domain_numeric` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `pinned_value` | 0.001 | feature | 0.51 | 0.05 | 0.00 | 0.00 | 0.00 |
-| `pinned_value` | 0.005 | feature | 0.95 | 0.95 | 0.00 | 0.00 | 0.00 |
-| `pinned_value` | 0.01 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 0.05 |
-| `pinned_value` | 0.05 | feature | 1.00 | 1.00 | 0.47 | 0.47 | 1.00 |
-| `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
-| `tiny_noise` (control) | 0.0001 | feature | 0.05 | 0.04 | 0.00 | 0.00 | 0.00 |
-| `type_change` | 0.001 | feature | 0.80 | 0.04 | 0.00 | 0.00 | 0.00 |
-| `type_change` | 0.005 | feature | 1.00 | 0.05 | 0.00 | 0.00 | 0.00 |
-| `type_change` | 0.01 | feature | 1.00 | 0.05 | 0.00 | 0.00 | 0.07 |
-| `type_change` | 0.05 | feature | 1.00 | 0.03 | 0.74 | 0.74 | 1.00 |
-| `type_change` | 0.2 | feature | 1.00 | 0.07 | 1.00 | 1.00 | 1.00 |
-| `unit_change` | 0.001 | feature | 0.11 | 0.05 | 0.00 | 0.00 | 0.00 |
-| `unit_change` | 0.005 | feature | 0.83 | 0.85 | 0.00 | 0.00 | 0.00 |
-| `unit_change` | 0.01 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 0.14 |
-| `unit_change` | 0.05 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 1.00 |
-| `unit_change` | 0.2 | feature | 1.00 | 1.00 | 0.83 | 1.00 | 1.00 |
-| `variance_change` | 0.02 | feature | 1.00 | 0.99 | 0.11 | 0.11 | 0.42 |
-| `variance_change` | 0.05 | feature | 1.00 | 1.00 | 0.25 | 0.25 | 1.00 |
-| `variance_change` | 0.1 | feature | 1.00 | 1.00 | 0.18 | 0.18 | 1.00 |
-| `variance_change` | 0.25 | feature | 1.00 | 1.00 | 0.38 | 0.80 | 1.00 |
-| `variance_change` | 0.5 | feature | 1.00 | 1.00 | 0.79 | 1.00 | 1.00 |
+| Fault | Severity | Level | `chi2 p<0.05` | `ks p<0.05` | `psi>0.2` | `psi>0.1` | `linf>0.01` | `schema` |
+|---|---|---|---|---|---|---|---|---|
+| `dropped_feature` | 1 | feature | n/a | n/a | n/a | n/a | n/a | 1.00 |
+| `duplicate_rows` | 0.001 | batch | 0.30 | 0.16 | 0.00 | 0.00 | 0.00 | 0.00 |
+| `duplicate_rows` | 0.005 | batch | 0.32 | 0.25 | 0.00 | 0.00 | 0.00 | 0.00 |
+| `duplicate_rows` | 0.01 | batch | 0.39 | 0.15 | 0.00 | 0.00 | 0.00 | 0.00 |
+| `duplicate_rows` | 0.05 | batch | 0.41 | 0.20 | 0.00 | 0.00 | 0.00 | 0.00 |
+| `duplicate_rows` | 0.2 | batch | 0.74 | 0.43 | 0.00 | 0.00 | 0.00 | 0.00 |
+| `mean_shift` | 0.01 | feature | 0.83 | 0.83 | 0.21 | 0.21 | 0.39 | 0.00 |
+| `mean_shift` | 0.05 | feature | 1.00 | 1.00 | 0.27 | 0.27 | 0.77 | 0.00 |
+| `mean_shift` | 0.1 | feature | 1.00 | 1.00 | 0.37 | 0.37 | 1.00 | 0.00 |
+| `mean_shift` | 0.25 | feature | 1.00 | 1.00 | 0.57 | 0.57 | 1.00 | 0.00 |
+| `mean_shift` | 0.5 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.23 |
+| `missing_rate_increase` | 0.001 | feature | 0.93 | 0.03 | 0.00 | 0.00 | 0.00 | 0.93 |
+| `missing_rate_increase` | 0.005 | feature | 1.00 | 0.01 | 0.00 | 0.00 | 0.00 | 0.87 |
+| `missing_rate_increase` | 0.01 | feature | 1.00 | 0.03 | 0.00 | 0.00 | 0.08 | 0.81 |
+| `missing_rate_increase` | 0.05 | feature | 1.00 | 0.08 | 0.91 | 0.91 | 1.00 | 1.00 |
+| `missing_rate_increase` | 0.2 | feature | 1.00 | 0.03 | 1.00 | 1.00 | 1.00 | 1.00 |
+| `new_category` | 0.001 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.00 | 1.00 |
+| `new_category` | 0.005 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.00 | 1.00 |
+| `new_category` | 0.01 | feature | 1.00 | n/a | 0.00 | 0.00 | 0.00 | 1.00 |
+| `new_category` | 0.05 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 | 1.00 |
+| `new_category` | 0.2 | feature | 1.00 | n/a | 1.00 | 1.00 | 1.00 | 1.00 |
+| `out_of_domain_numeric` | 0.001 | feature | 0.11 | 0.08 | 0.00 | 0.00 | 0.00 | 0.87 |
+| `out_of_domain_numeric` | 0.005 | feature | 0.94 | 1.00 | 0.00 | 0.00 | 0.00 | 0.83 |
+| `out_of_domain_numeric` | 0.01 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 0.26 | 0.93 |
+| `out_of_domain_numeric` | 0.05 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 1.00 | 0.90 |
+| `out_of_domain_numeric` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.90 |
+| `pinned_value` | 0.001 | feature | 0.51 | 0.05 | 0.00 | 0.00 | 0.00 | 0.88 |
+| `pinned_value` | 0.005 | feature | 0.95 | 0.95 | 0.00 | 0.00 | 0.00 | 0.78 |
+| `pinned_value` | 0.01 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 0.05 | 0.89 |
+| `pinned_value` | 0.05 | feature | 1.00 | 1.00 | 0.47 | 0.47 | 1.00 | 0.92 |
+| `pinned_value` | 0.2 | feature | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.89 |
+| `tiny_noise` (control) | 0.0001 | feature | 0.05 | 0.04 | 0.00 | 0.00 | 0.00 | 0.00 |
+| `type_change` | 0.001 | feature | 0.80 | 0.04 | 0.00 | 0.00 | 0.00 | 1.00 |
+| `type_change` | 0.005 | feature | 1.00 | 0.05 | 0.00 | 0.00 | 0.00 | 1.00 |
+| `type_change` | 0.01 | feature | 1.00 | 0.05 | 0.00 | 0.00 | 0.07 | 1.00 |
+| `type_change` | 0.05 | feature | 1.00 | 0.03 | 0.74 | 0.74 | 1.00 | 1.00 |
+| `type_change` | 0.2 | feature | 1.00 | 0.07 | 1.00 | 1.00 | 1.00 | 1.00 |
+| `unit_change` | 0.001 | feature | 0.11 | 0.05 | 0.00 | 0.00 | 0.00 | 1.00 |
+| `unit_change` | 0.005 | feature | 0.83 | 0.85 | 0.00 | 0.00 | 0.00 | 1.00 |
+| `unit_change` | 0.01 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 0.14 | 1.00 |
+| `unit_change` | 0.05 | feature | 1.00 | 1.00 | 0.00 | 0.00 | 1.00 | 1.00 |
+| `unit_change` | 0.2 | feature | 1.00 | 1.00 | 0.83 | 1.00 | 1.00 | 1.00 |
+| `variance_change` | 0.02 | feature | 1.00 | 0.99 | 0.11 | 0.11 | 0.42 | 0.59 |
+| `variance_change` | 0.05 | feature | 1.00 | 1.00 | 0.25 | 0.25 | 1.00 | 0.68 |
+| `variance_change` | 0.1 | feature | 1.00 | 1.00 | 0.18 | 0.18 | 1.00 | 0.61 |
+| `variance_change` | 0.25 | feature | 1.00 | 1.00 | 0.38 | 0.80 | 1.00 | 1.00 |
+| `variance_change` | 0.5 | feature | 1.00 | 1.00 | 0.79 | 1.00 | 1.00 | 1.00 |
 
-Not scorable by a distribution distance (the column is gone; this is a schema check): `dropped_feature`.
+Not scorable by a distribution distance (the column is gone; only the schema check applies): `dropped_feature`.
 
 ## Does the alert matter?
 
-Model: gradient boosting trained on the reference split; clean held-out accuracy 0.7180. Accuracy drop = clean minus faulty on held-out batches of 5,000 rows (positive = the fault hurts). Best recall = highest calibrated recall of any detector at batch size 10,000.
+Model: gradient boosting trained on the reference split; clean held-out accuracy 0.7180. Accuracy drop = clean minus faulty on held-out batches of 5,000 rows (positive = the fault hurts). Best recall = highest calibrated recall of any distance at batch size 10,000; schema = recall of the schema check at the same batch size.
 
-| Fault | Severity | Accuracy drop [95% CI] | Best recall |
-|---|---|---|---|
-| `dropped_feature` | 1 | +0.0175 [+0.0147, +0.0202] | n/a |
-| `duplicate_rows` | 0.001 | +0.0000 [-0.0000, +0.0001] | 0.07 |
-| `duplicate_rows` | 0.005 | +0.0000 [-0.0001, +0.0001] | 0.10 |
-| `duplicate_rows` | 0.01 | -0.0001 [-0.0003, +0.0001] | 0.12 |
-| `duplicate_rows` | 0.05 | +0.0001 [-0.0003, +0.0005] | 0.19 |
-| `duplicate_rows` | 0.2 | +0.0003 [-0.0005, +0.0011] | 0.45 |
-| `mean_shift` | 0.01 | +0.0009 [+0.0005, +0.0013] | 0.60 |
-| `mean_shift` | 0.05 | +0.0011 [+0.0007, +0.0015] | 0.98 |
-| `mean_shift` | 0.1 | +0.0011 [+0.0006, +0.0015] | 1.00 |
-| `mean_shift` | 0.25 | +0.0044 [+0.0034, +0.0054] | 1.00 |
-| `mean_shift` | 0.5 | +0.0115 [+0.0094, +0.0136] | 1.00 |
-| `missing_rate_increase` | 0.001 | +0.0000 [-0.0000, +0.0000] | 0.93 |
-| `missing_rate_increase` | 0.005 | +0.0001 [+0.0000, +0.0001] | 0.94 |
-| `missing_rate_increase` | 0.01 | +0.0003 [+0.0001, +0.0004] | 1.00 |
-| `missing_rate_increase` | 0.05 | +0.0009 [+0.0006, +0.0011] | 1.00 |
-| `missing_rate_increase` | 0.2 | +0.0034 [+0.0028, +0.0039] | 1.00 |
-| `new_category` | 0.001 | +0.0000 [-0.0000, +0.0000] | 1.00 |
-| `new_category` | 0.005 | +0.0000 [-0.0000, +0.0001] | 1.00 |
-| `new_category` | 0.01 | +0.0001 [-0.0000, +0.0001] | 1.00 |
-| `new_category` | 0.05 | +0.0005 [+0.0004, +0.0007] | 1.00 |
-| `new_category` | 0.2 | +0.0020 [+0.0015, +0.0025] | 1.00 |
-| `out_of_domain_numeric` | 0.001 | +0.0001 [+0.0001, +0.0002] | 0.01 |
-| `out_of_domain_numeric` | 0.005 | +0.0008 [+0.0006, +0.0009] | 0.05 |
-| `out_of_domain_numeric` | 0.01 | +0.0011 [+0.0009, +0.0013] | 0.47 |
-| `out_of_domain_numeric` | 0.05 | +0.0066 [+0.0061, +0.0071] | 1.00 |
-| `out_of_domain_numeric` | 0.2 | +0.0269 [+0.0252, +0.0286] | 1.00 |
-| `pinned_value` | 0.001 | +0.0001 [+0.0000, +0.0001] | 0.50 |
-| `pinned_value` | 0.005 | +0.0003 [+0.0002, +0.0004] | 0.48 |
-| `pinned_value` | 0.01 | +0.0007 [+0.0005, +0.0010] | 0.62 |
-| `pinned_value` | 0.05 | +0.0036 [+0.0028, +0.0045] | 1.00 |
-| `pinned_value` | 0.2 | +0.0127 [+0.0099, +0.0159] | 1.00 |
-| `tiny_noise` | 0.0001 | +0.0000 [-0.0000, +0.0000] | 0.01 |
-| `type_change` | 0.001 | +0.0000 [-0.0000, +0.0000] | 0.78 |
-| `type_change` | 0.005 | +0.0001 [+0.0000, +0.0002] | 0.86 |
-| `type_change` | 0.01 | +0.0002 [+0.0001, +0.0003] | 1.00 |
-| `type_change` | 0.05 | +0.0012 [+0.0009, +0.0014] | 1.00 |
-| `type_change` | 0.2 | +0.0042 [+0.0035, +0.0049] | 1.00 |
-| `unit_change` | 0.001 | +0.0002 [+0.0001, +0.0002] | 0.04 |
-| `unit_change` | 0.005 | +0.0005 [+0.0004, +0.0006] | 0.07 |
-| `unit_change` | 0.01 | +0.0011 [+0.0009, +0.0013] | 0.31 |
-| `unit_change` | 0.05 | +0.0053 [+0.0049, +0.0058] | 1.00 |
-| `unit_change` | 0.2 | +0.0231 [+0.0215, +0.0249] | 1.00 |
-| `variance_change` | 0.02 | +0.0002 [+0.0001, +0.0003] | 0.59 |
-| `variance_change` | 0.05 | +0.0004 [+0.0002, +0.0006] | 1.00 |
-| `variance_change` | 0.1 | +0.0009 [+0.0006, +0.0013] | 1.00 |
-| `variance_change` | 0.25 | +0.0040 [+0.0032, +0.0048] | 1.00 |
-| `variance_change` | 0.5 | +0.0071 [+0.0056, +0.0086] | 1.00 |
+| Fault | Severity | Accuracy drop [95% CI] | Best recall | Schema |
+|---|---|---|---|---|
+| `dropped_feature` | 1 | +0.0175 [+0.0147, +0.0202] | n/a | 1.00 |
+| `duplicate_rows` | 0.001 | +0.0000 [-0.0000, +0.0001] | 0.07 | 0.00 |
+| `duplicate_rows` | 0.005 | +0.0000 [-0.0001, +0.0001] | 0.10 | 0.00 |
+| `duplicate_rows` | 0.01 | -0.0001 [-0.0003, +0.0001] | 0.12 | 0.00 |
+| `duplicate_rows` | 0.05 | +0.0001 [-0.0003, +0.0005] | 0.19 | 0.00 |
+| `duplicate_rows` | 0.2 | +0.0003 [-0.0005, +0.0011] | 0.45 | 0.00 |
+| `mean_shift` | 0.01 | +0.0009 [+0.0005, +0.0013] | 0.60 | 0.00 |
+| `mean_shift` | 0.05 | +0.0011 [+0.0007, +0.0015] | 0.98 | 0.00 |
+| `mean_shift` | 0.1 | +0.0011 [+0.0006, +0.0015] | 1.00 | 0.00 |
+| `mean_shift` | 0.25 | +0.0044 [+0.0034, +0.0054] | 1.00 | 0.00 |
+| `mean_shift` | 0.5 | +0.0115 [+0.0094, +0.0136] | 1.00 | 0.23 |
+| `missing_rate_increase` | 0.001 | +0.0000 [-0.0000, +0.0000] | 0.93 | 0.93 |
+| `missing_rate_increase` | 0.005 | +0.0001 [+0.0000, +0.0001] | 0.94 | 0.87 |
+| `missing_rate_increase` | 0.01 | +0.0003 [+0.0001, +0.0004] | 1.00 | 0.81 |
+| `missing_rate_increase` | 0.05 | +0.0009 [+0.0006, +0.0011] | 1.00 | 1.00 |
+| `missing_rate_increase` | 0.2 | +0.0034 [+0.0028, +0.0039] | 1.00 | 1.00 |
+| `new_category` | 0.001 | +0.0000 [-0.0000, +0.0000] | 1.00 | 1.00 |
+| `new_category` | 0.005 | +0.0000 [-0.0000, +0.0001] | 1.00 | 1.00 |
+| `new_category` | 0.01 | +0.0001 [-0.0000, +0.0001] | 1.00 | 1.00 |
+| `new_category` | 0.05 | +0.0005 [+0.0004, +0.0007] | 1.00 | 1.00 |
+| `new_category` | 0.2 | +0.0020 [+0.0015, +0.0025] | 1.00 | 1.00 |
+| `out_of_domain_numeric` | 0.001 | +0.0001 [+0.0001, +0.0002] | 0.01 | 0.69 |
+| `out_of_domain_numeric` | 0.005 | +0.0008 [+0.0006, +0.0009] | 0.05 | 0.68 |
+| `out_of_domain_numeric` | 0.01 | +0.0011 [+0.0009, +0.0013] | 0.47 | 0.74 |
+| `out_of_domain_numeric` | 0.05 | +0.0066 [+0.0061, +0.0071] | 1.00 | 0.77 |
+| `out_of_domain_numeric` | 0.2 | +0.0269 [+0.0252, +0.0286] | 1.00 | 0.78 |
+| `pinned_value` | 0.001 | +0.0001 [+0.0000, +0.0001] | 0.50 | 0.88 |
+| `pinned_value` | 0.005 | +0.0003 [+0.0002, +0.0004] | 0.48 | 0.78 |
+| `pinned_value` | 0.01 | +0.0007 [+0.0005, +0.0010] | 0.62 | 0.89 |
+| `pinned_value` | 0.05 | +0.0036 [+0.0028, +0.0045] | 1.00 | 0.92 |
+| `pinned_value` | 0.2 | +0.0127 [+0.0099, +0.0159] | 1.00 | 0.89 |
+| `tiny_noise` | 0.0001 | +0.0000 [-0.0000, +0.0000] | 0.01 | 0.00 |
+| `type_change` | 0.001 | +0.0000 [-0.0000, +0.0000] | 0.78 | 1.00 |
+| `type_change` | 0.005 | +0.0001 [+0.0000, +0.0002] | 0.86 | 1.00 |
+| `type_change` | 0.01 | +0.0002 [+0.0001, +0.0003] | 1.00 | 1.00 |
+| `type_change` | 0.05 | +0.0012 [+0.0009, +0.0014] | 1.00 | 1.00 |
+| `type_change` | 0.2 | +0.0042 [+0.0035, +0.0049] | 1.00 | 1.00 |
+| `unit_change` | 0.001 | +0.0002 [+0.0001, +0.0002] | 0.04 | 1.00 |
+| `unit_change` | 0.005 | +0.0005 [+0.0004, +0.0006] | 0.07 | 1.00 |
+| `unit_change` | 0.01 | +0.0011 [+0.0009, +0.0013] | 0.31 | 1.00 |
+| `unit_change` | 0.05 | +0.0053 [+0.0049, +0.0058] | 1.00 | 1.00 |
+| `unit_change` | 0.2 | +0.0231 [+0.0215, +0.0249] | 1.00 | 1.00 |
+| `variance_change` | 0.02 | +0.0002 [+0.0001, +0.0003] | 0.59 | 0.58 |
+| `variance_change` | 0.05 | +0.0004 [+0.0002, +0.0006] | 1.00 | 0.64 |
+| `variance_change` | 0.1 | +0.0009 [+0.0006, +0.0013] | 1.00 | 0.55 |
+| `variance_change` | 0.25 | +0.0040 [+0.0032, +0.0048] | 1.00 | 0.86 |
+| `variance_change` | 0.5 | +0.0071 [+0.0056, +0.0086] | 1.00 | 0.99 |
 
 Model loses more than 0.005 accuracy but no detector reaches recall 0.5: none.
 

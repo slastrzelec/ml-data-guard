@@ -424,3 +424,11 @@ commit. Unchanged parts must come out identical (the determinism of section 6 is
 4. The optional comparison with TFDV / Evidently is either done as an optional extra or explicitly dropped
    with the reason.
 
+### 15.7 Decision: no TFDV / Evidently comparison
+
+Dropped. The question it was meant to answer (does a schema-based tool find what distances miss, and at
+what cost) is answered inside the benchmark by the schema rule of section 15.3, under the same splits,
+seeds and faults as every other rule. Running external tools would add heavy, fast-moving dependencies
+and compare default configurations of tools that are meant to be tuned by hand, which is a weaker
+comparison than it looks. The decision can be reopened as an optional extra outside the core CI.
+
