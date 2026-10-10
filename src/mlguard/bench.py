@@ -32,7 +32,14 @@ import pandas as pd
 import scipy
 
 import mlguard
-from mlguard.datasets import Dataset, load_covertype, make_synthetic, make_synthetic_series
+from mlguard.datasets import (
+    Dataset,
+    load_beijing,
+    load_covertype,
+    load_news,
+    make_synthetic,
+    make_synthetic_series,
+)
 from mlguard.detectors import (
     CALIBRATED_DETECTORS,
     TEXTBOOK_RULES,
@@ -46,6 +53,8 @@ from mlguard.detectors import (
 )
 from mlguard.distances import bin_counts
 from mlguard.inject import FAULTS
+from mlguard.schema import infer_schema
+from mlguard.validate import FeatureFlags, breaks_schema, feature_flags
 
 _FRACTIONS = (0.001, 0.005, 0.01, 0.05, 0.2)
 DEFAULT_SEVERITIES: dict[str, tuple[float, ...]] = {
@@ -69,6 +78,9 @@ _MODEL_BATCH, _BOOTSTRAP = 7, 8
 
 _Z95 = 1.959963984540054
 _DETECTORS = CALIBRATED_DETECTORS["numeric"]  # superset of the categorical ones
+#: Rules that need no calibration: the fixed textbook thresholds and the inferred schema.
+_SCHEMA_RULE = "schema"
+_RULES = (*TEXTBOOK_RULES, _SCHEMA_RULE)
 
 
 # --------------------------------------------------------------------------- configuration
@@ -96,6 +108,11 @@ class BenchConfig:
     model: bool = True
     model_batch_size: int = 5_000
     model_max_iter: int = 100
+    #: "static": every batch is compared with the reference split. "rolling" (time-ordered data
+    #: only): every batch is compared with the rows just before it.
+    reference_mode: str = "static"
+    #: Size of the rolling reference, in batches.
+    rolling_reference_batches: int = 5
 
     def __post_init__(self) -> None:
         if len(self.split) != 4 or min(self.split) <= 0 or abs(sum(self.split) - 1) > 1e-9:
@@ -111,6 +128,10 @@ class BenchConfig:
                 "too few calibration batches to estimate the threshold: "
                 "n_calibration_batches * target_fpr must be at least 1"
             )
+        if self.reference_mode not in ("static", "rolling"):
+            raise ValueError("reference_mode must be 'static' or 'rolling'")
+        if self.rolling_reference_batches < 1:
+            raise ValueError("rolling_reference_batches must be at least 1")
         unknown = (set(self.faults or ()) | set(self.severities)) - set(FAULTS)
         if unknown:
             raise ValueError(f"unknown faults: {sorted(unknown)}")
@@ -143,10 +164,11 @@ def load_dataset(config: BenchConfig) -> Dataset:
             raise ValueError("dataset_rows is required for synthetic datasets")
         maker = make_synthetic if config.dataset == "synthetic" else make_synthetic_series
         return maker(config.dataset_rows, config.seed)
-    if config.dataset == "covertype":
+    loaders = {"covertype": load_covertype, "news": load_news, "beijing": load_beijing}
+    if config.dataset in loaders:
         if config.data_path is None:
-            raise ValueError("data_path is required for the covertype dataset")
-        return load_covertype(config.data_path)
+            raise ValueError(f"data_path is required for the {config.dataset} dataset")
+        return loaders[config.dataset](config.data_path)
     raise ValueError(f"unknown dataset {config.dataset!r}")
 
 
@@ -276,12 +298,94 @@ class _Scorer:
         counts = np.bincount(self._codes[feature][rows], minlength=reference.counts.size)
         return score_counts(reference, counts.astype(np.float64), smoothing=self.smoothing)
 
-    def faulty(self, feature: str, values: np.ndarray) -> dict[str, float]:
+    def faulty(self, feature: str, values: np.ndarray, rows: np.ndarray) -> dict[str, float]:
         return score_feature(self.references[feature], values, smoothing=self.smoothing)
 
 
+class _RollingScorer:
+    """Scores a batch against the rows just before it instead of a fixed reference.
+
+    On data with seasons a fixed reference describes the whole year, and one week never looks
+    like the whole year. The rows before a batch are clean data from the same season. Statistics
+    are fitted on that window only; the batch itself is never part of its own reference.
+    """
+
+    def __init__(self, dataset: Dataset, config: BenchConfig) -> None:
+        self.dataset = dataset
+        self.config = config
+        self._columns = {
+            feature: (
+                strict_numeric(dataset.frame[feature].to_numpy())
+                if dataset.kind(feature) == "numeric"
+                else dataset.frame[feature].to_numpy(dtype=object)
+            )
+            for feature in dataset.features
+        }
+        self._window: tuple[int, int] | None = None
+        self._fitted: dict[str, FeatureReference | None] = {}
+
+    def _reference(self, feature: str, rows: np.ndarray) -> FeatureReference | None:
+        start, size = int(rows[0]), self.config.rolling_reference_batches * len(rows)
+        if start - size < 0:
+            raise ValueError("not enough rows before the batch for a rolling reference")
+        if (start, size) != self._window:
+            self._window, self._fitted = (start, size), {}
+        if feature not in self._fitted:
+            try:
+                self._fitted[feature] = fit_reference(
+                    feature,
+                    self._columns[feature][start - size : start],
+                    self.dataset.kind(feature),  # type: ignore[arg-type]
+                    n_bins=self.config.n_bins,
+                    max_categories=self.config.max_categories,
+                )
+            except ValueError:  # the window holds no value of this feature (sensor outage)
+                self._fitted[feature] = None
+        return self._fitted[feature]
+
+    def clean(self, feature: str, rows: np.ndarray) -> dict[str, float]:
+        return self.faulty(feature, self._columns[feature][rows], rows)
+
+    def faulty(self, feature: str, values: np.ndarray, rows: np.ndarray) -> dict[str, float]:
+        reference = self._reference(feature, rows)
+        if reference is None:
+            # nothing to compare with: no score, hence no alarm from any rule
+            names = [*CALIBRATED_DETECTORS[self.dataset.kind(feature)], "chi2_pvalue", "ks_pvalue"]  # type: ignore[index]
+            return dict.fromkeys(names, math.nan)
+        return score_feature(reference, values, smoothing=self.config.smoothing)
+
+
+class _SchemaCheck:
+    """The schema validator as one more rule: "does this feature of this batch break the schema?"
+
+    The schema is inferred from the reference split with the default heuristics and never edited,
+    so its false alarms on clean batches are part of what is measured.
+    """
+
+    def __init__(self, dataset: Dataset, reference_rows: np.ndarray) -> None:
+        reference = dataset.frame.iloc[reference_rows][list(dataset.features)]
+        self.schema = infer_schema(reference)
+        # Clean data is checked once per column; a clean batch is then a slice of the flags.
+        self._flags = {
+            feature.name: feature_flags(feature, dataset.frame[feature.name].to_numpy())
+            for feature in self.schema.features
+        }
+
+    def clean(self, feature: str, rows: np.ndarray) -> bool:
+        flags = self._flags[feature]
+        sliced = FeatureFlags(flags.present[rows], flags.mismatched[rows], flags.violating[rows])
+        return breaks_schema(self.schema[feature], sliced)
+
+    def faulty(self, feature: str, batch: pd.DataFrame) -> bool:
+        if feature not in batch.columns:
+            return True  # a missing column is a schema error by definition
+        return breaks_schema(
+            self.schema[feature], feature_flags(self.schema[feature], batch[feature].to_numpy())
+        )
+
+
 def calibrate(
-    scorer: _Scorer,
+    scorer: _Scorer | _RollingScorer,
     calibration_rows: np.ndarray,
     batch_size: int,
     config: BenchConfig,
@@ -350,7 +454,8 @@ def _any(per_feature: list[dict[str, bool]]) -> dict[str, bool]:
 
 
 def evaluate_clean(
-    scorer: _Scorer,
+    scorer: _Scorer | _RollingScorer,
+    schema_check: _SchemaCheck,
     evaluation_rows: np.ndarray,
     thresholds: dict[str, dict[str, float]],
     batch_size: int,
@@ -365,13 +470,14 @@ def evaluate_clean(
         calibrated_all, textbook_all = [], []
         for feature in dataset.features:
             calibrated, textbook = _alarms(scorer.clean(feature, rows), thresholds[feature])
+            textbook[_SCHEMA_RULE] = schema_check.clean(feature, rows)
             tallies["cal_feature"].add(calibrated)
             tallies["text_feature"].add(textbook)
             calibrated_all.append(calibrated)
             textbook_all.append(textbook)
         tallies["cal_batch"].add(_any(calibrated_all))
         tallies["text_batch"].add(_any(textbook_all))
-    rules = tuple(TEXTBOOK_RULES)
+    rules = _RULES
     return {
         "n_batches": config.n_clean_batches,
         "calibrated": {
@@ -399,31 +505,73 @@ def _candidates(dataset: Dataset, fault: str) -> tuple[str, ...]:
         return dataset.numeric
     if target == "categorical":
         return dataset.categorical
+    if FAULTS[fault].needs_time_order and dataset.group_by is not None:
+        # shifting the series name within its own series would change nothing
+        return tuple(name for name in dataset.features if name != dataset.group_by)
     return dataset.features
 
 
-def _choose_feature(dataset: Dataset, fault: str, config: BenchConfig, *key: int) -> str | None:
-    """The faulted feature of one run; the same for every batch size and for the model."""
+def _injectable(fault: str, values: np.ndarray) -> bool:
+    """Whether a fault can change this column of this batch at all.
+
+    A mean shift needs a spread, a unit change needs a non-zero value, several faults need at
+    least one value. Without this check a dry week of an hourly ``rain`` feature would be labelled
+    faulty although nothing could be injected.
+    """
+    if fault in ("mean_shift", "variance_change", "unit_change", "out_of_domain_numeric"):
+        numbers = strict_numeric(values)
+        present = numbers[~np.isnan(numbers)]
+        if present.size == 0:
+            return False
+        if fault in ("mean_shift", "variance_change"):
+            return bool(present.std() > 0)
+        if fault == "unit_change":
+            return bool(np.any(present != 0))
+        return True
+    if fault in ("type_change", "missing_rate_increase"):
+        return any(value is not None and value == value for value in values)
+    return True
+
+
+def _choose_feature(
+    dataset: Dataset, fault: str, config: BenchConfig, batch: pd.DataFrame, *key: int
+) -> str | None:
+    """The faulted feature of one run, drawn among the features the fault can act on.
+
+    The draw depends on the seed and the run only, so detection and model impact use the same
+    feature whenever it is injectable in both batches (always, unless a feature is constant or
+    empty in one of them).
+    """
     if FAULTS[fault].target == "rows":
         return None
-    candidates = _candidates(dataset, fault)
+    candidates = tuple(
+        name for name in _candidates(dataset, fault) if _injectable(fault, batch[name].to_numpy())
+    )
     if not candidates:
-        raise ValueError(f"{fault} has no applicable feature in dataset {dataset.name}")
+        raise ValueError(f"{fault} has no applicable feature in this batch of {dataset.name}")
     return candidates[int(_rng(config.seed, _FAULT_FEATURE, *key).integers(len(candidates)))]
 
 
-def _inject(
-    dataset: Dataset, rows: np.ndarray, fault: str, feature: str | None, severity: float,
-    config: BenchConfig, *key: int,
-) -> pd.DataFrame:  # fmt: skip
+def _batch(dataset: Dataset, rows: np.ndarray) -> pd.DataFrame:
     # The target travels with its row, so a fault that rewrites whole rows keeps each row's
     # label; faults on one feature never touch it and detectors never score it.
-    batch = dataset.frame.iloc[rows][[*dataset.features, dataset.target]]
-    return FAULTS[fault].apply(batch, feature, severity, _rng(config.seed, _FAULT_INJECT, *key))
+    return dataset.frame.iloc[rows][[*dataset.features, dataset.target]]
+
+
+def _inject(
+    dataset: Dataset, batch: pd.DataFrame, fault: str, feature: str | None, severity: float,
+    config: BenchConfig, *key: int,
+) -> pd.DataFrame:  # fmt: skip
+    rng = _rng(config.seed, _FAULT_INJECT, *key)
+    if FAULTS[fault].needs_time_order and dataset.group_by is not None:
+        # several interleaved series: the shift in time happens within each series
+        return FAULTS[fault].apply(batch, feature, severity, rng, group_by=dataset.group_by)
+    return FAULTS[fault].apply(batch, feature, severity, rng)
 
 
 def evaluate_faults(
-    scorer: _Scorer,
+    scorer: _Scorer | _RollingScorer,
+    schema_check: _SchemaCheck,
     evaluation_rows: np.ndarray,
     thresholds: dict[str, dict[str, float]],
     batch_size: int,
@@ -445,15 +593,19 @@ def evaluate_faults(
                 rows = draw_batch(
                     evaluation_rows, batch_size, rng, time_ordered=dataset.time_ordered
                 )
-                feature = _choose_feature(dataset, fault, config, *key)
-                faulty = _inject(dataset, rows, fault, feature, severity, config, *key)
+                batch = _batch(dataset, rows)
+                feature = _choose_feature(dataset, fault, config, batch, *key)
+                faulty = _inject(dataset, batch, fault, feature, severity, config, *key)
                 if not spec.preserves_shape:
-                    continue  # a missing column has no distribution to compare
+                    # a missing column has no distribution to compare; only the schema sees it
+                    textbook_tally.add({_SCHEMA_RULE: schema_check.faulty(str(feature), faulty)})
+                    continue
                 scored = dataset.features if feature is None else (feature,)
                 calibrated_all, textbook_all = [], []
                 for name in scored:
-                    scores = scorer.faulty(name, faulty[name].to_numpy())
+                    scores = scorer.faulty(name, faulty[name].to_numpy(), rows)
                     calibrated, textbook = _alarms(scores, thresholds[name])
+                    textbook[_SCHEMA_RULE] = schema_check.faulty(name, faulty)
                     calibrated_all.append(calibrated)
                     textbook_all.append(textbook)
                 calibrated_tally.add(_any(calibrated_all))
@@ -470,7 +622,7 @@ def evaluate_faults(
                     "scorable": spec.preserves_shape,
                     "n": config.n_seeds,
                     "calibrated": calibrated_tally.summary(_DETECTORS),
-                    "textbook": textbook_tally.summary(tuple(TEXTBOOK_RULES)),
+                    "textbook": textbook_tally.summary(_RULES),
                     # Alarms per faulted feature (calibrated arm): {feature: {detector: [k, n]}}.
                     "by_feature": {
                         name: {
@@ -547,8 +699,9 @@ def evaluate_model_impact(scorer: _Scorer, splits: Splits, config: BenchConfig) 
                 rows = draw_batch(
                     splits.held_out, batch_size, rng, time_ordered=dataset.time_ordered
                 )
-                feature = _choose_feature(dataset, fault, config, *key)
-                faulty = _inject(dataset, rows, fault, feature, severity, config, *key)
+                batch = _batch(dataset, rows)
+                feature = _choose_feature(dataset, fault, config, batch, *key)
+                faulty = _inject(dataset, batch, fault, feature, severity, config, *key)
                 drops[seed_index] = correct[rows].mean() - model.correct(faulty).mean()
             low, high = bootstrap_mean_interval(
                 drops, _rng(config.seed, _BOOTSTRAP, fault_index, severity_index)
@@ -581,7 +734,13 @@ def run_benchmark(
     splits = make_splits(
         len(dataset.frame), config.split, seed=config.seed, time_ordered=dataset.time_ordered
     )
-    scorer = _Scorer(dataset, splits.reference, config)
+    static = _Scorer(dataset, splits.reference, config)
+    schema_check = _SchemaCheck(dataset, splits.reference)
+    scorer: _Scorer | _RollingScorer = static
+    if config.reference_mode == "rolling":
+        if not dataset.time_ordered:
+            raise ValueError("a rolling reference needs time-ordered data")
+        scorer = _RollingScorer(dataset, config)
     runs = []
     for batch_size in config.batch_sizes:
         print(f"[bench] {dataset.name}: batch size {batch_size}", file=sys.stderr, flush=True)
@@ -593,9 +752,11 @@ def run_benchmark(
                     feature: {name: _number(value) for name, value in per_detector.items()}
                     for feature, per_detector in thresholds.items()
                 },
-                "clean": evaluate_clean(scorer, splits.evaluation, thresholds, batch_size, config),
+                "clean": evaluate_clean(
+                    scorer, schema_check, splits.evaluation, thresholds, batch_size, config
+                ),
                 "faults": evaluate_faults(
-                    scorer, splits.evaluation, thresholds, batch_size, config
+                    scorer, schema_check, splits.evaluation, thresholds, batch_size, config
                 ),
             }
         )
@@ -612,7 +773,7 @@ def run_benchmark(
         import sklearn
 
         versions["scikit-learn"] = sklearn.__version__
-        model = evaluate_model_impact(scorer, splits, config)
+        model = evaluate_model_impact(static, splits, config)
     return {
         "meta": {
             "dataset": dataset.name,
@@ -676,6 +837,12 @@ def render_report(result: dict[str, Any]) -> str:
         f"{len(meta['features']['categorical'])} categorical features.",
         f"- Splits (rows): reference {sizes['reference']:,}, calibration {sizes['calibration']:,}, "
         f"evaluation {sizes['evaluation']:,}, held-out {sizes['held_out']:,}.",
+        "- Reference: "
+        + (
+            f"rolling, the {config['rolling_reference_batches']} batches of rows before each batch."
+            if config.get("reference_mode") == "rolling"
+            else "static, the reference split."
+        ),
         f"- Seed {config['seed']}; {config['n_calibration_batches']} calibration batches, "
         f"{config['n_clean_batches']} clean batches, {config['n_seeds']} faulty batches per fault "
         f"and severity; target false-positive rate {config['target_fpr']}.",
@@ -705,30 +872,30 @@ def render_report(result: dict[str, Any]) -> str:
             for name in _DETECTORS
         ] + [
             [
-                f"`{rule}` (textbook)",
+                f"`{rule}` ({'inferred schema' if rule == _SCHEMA_RULE else 'textbook'})",
                 _cell(clean["textbook"]["per_feature"][rule], interval=True),
                 _cell(clean["textbook"]["per_batch"][rule], interval=True),
             ]
-            for rule in TEXTBOOK_RULES
+            for rule in _RULES
         ]
         lines += _table(["Rule", "Per feature", "Per batch (any feature)"], rows)
         for arm, names, title in (
             ("calibrated", _DETECTORS, "Recall, calibrated thresholds"),
-            ("textbook", tuple(TEXTBOOK_RULES), "Recall, textbook rules"),
+            ("textbook", _RULES, "Recall, textbook rules and schema check"),
         ):
             lines += [f"### {title}", ""]
             rows = [
                 [_label(entry), f"{entry['severity']:g}", entry["level"]]
                 + [_cell(entry[arm][name]) for name in names]
                 for entry in run["faults"]
-                if entry["scorable"]
+                if entry["scorable"] or arm == "textbook"
             ]
             lines += _table(["Fault", "Severity", "Level", *[f"`{name}`" for name in names]], rows)
         unscorable = sorted({entry["fault"] for entry in run["faults"] if not entry["scorable"]})
         if unscorable:
             lines += [
-                "Not scorable by a distribution distance (the column is gone; this is a schema "
-                "check): " + ", ".join(f"`{name}`" for name in unscorable) + ".",
+                "Not scorable by a distribution distance (the column is gone; only the schema "
+                "check applies): " + ", ".join(f"`{name}`" for name in unscorable) + ".",
                 "",
             ]
     if result["model"] is not None:
@@ -757,13 +924,18 @@ def _render_model(result: dict[str, Any]) -> list[str]:
         )
         for entry in run["faults"]
     }
+    by_schema = {
+        (entry["fault"], entry["severity"]): entry["textbook"][_SCHEMA_RULE]
+        for entry in run["faults"]
+    }
     lines = [
         "## Does the alert matter?",
         "",
         f"Model: gradient boosting trained on the reference split; clean held-out accuracy "
         f"{model['clean_accuracy']:.4f}. Accuracy drop = clean minus faulty on held-out batches of "
         f"{model['batch_size']:,} rows (positive = the fault hurts). Best recall = highest "
-        f"calibrated recall of any detector at batch size {run['batch_size']:,}.",
+        f"calibrated recall of any distance at batch size {run['batch_size']:,}; schema = recall "
+        "of the schema check at the same batch size.",
         "",
     ]
     rows, silent, noisy = [], [], []
@@ -775,6 +947,7 @@ def _render_model(result: dict[str, Any]) -> list[str]:
                 f"{entry['severity']:g}",
                 f"{entry['accuracy_drop']:+.4f} [{entry['low']:+.4f}, {entry['high']:+.4f}]",
                 "n/a" if recall is None else f"{recall:.2f}",
+                _cell(by_schema.get((entry["fault"], entry["severity"]))),
             ]
         )
         tag = f"`{entry['fault']}` at {entry['severity']:g}"
@@ -782,7 +955,7 @@ def _render_model(result: dict[str, Any]) -> list[str]:
             silent.append(tag)
         if recall is not None and recall >= 0.9 and abs(entry["accuracy_drop"]) < 0.005:
             noisy.append(tag)
-    lines += _table(["Fault", "Severity", "Accuracy drop [95% CI]", "Best recall"], rows)
+    lines += _table(["Fault", "Severity", "Accuracy drop [95% CI]", "Best recall", "Schema"], rows)
     lines += [
         "Model loses more than 0.005 accuracy but no detector reaches recall 0.5: "
         + (", ".join(silent) or "none")

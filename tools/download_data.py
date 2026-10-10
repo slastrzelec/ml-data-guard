@@ -3,7 +3,7 @@
 This is the only place in the repository that uses the network. The library, the tests and the
 benchmark read the local cache in ``data/`` (never tracked by git).
 
-Usage: python tools/download_data.py covertype [--accept-unverified]
+Usage: python tools/download_data.py {covertype,news,beijing} [--accept-unverified]
 
 Exit codes: 0 verified, 1 checksum mismatch or download error, 2 no checksum pinned yet.
 """
@@ -19,14 +19,27 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-# The Covertype checksum was pinned on 2026-10-10 from a download whose content passed
-# mlguard.datasets.load_covertype (581,012 rows, 55 columns, valid one-hot groups).
+# Every checksum was pinned on 2026-10-10 from a download whose content passed the checks of
+# its loader in mlguard.datasets (row counts, column layout, one-hot groups, gap-free hours).
 SOURCES = {
     "covertype": {
         "url": "https://archive.ics.uci.edu/static/public/31/covertype.zip",
         "path": "data/covertype/covertype.zip",
         "sha256": "89a975c2457cd48e824238ae43c5a3cb762e42c4b4078d9b44a4514055105f6d",
         "licence": "CC BY 4.0, https://doi.org/10.24432/C50K5N",
+    },
+    "news": {
+        "url": "https://archive.ics.uci.edu/static/public/332/online+news+popularity.zip",
+        "path": "data/news/online_news_popularity.zip",
+        "sha256": "dba2ae526f62ccef6f2f8efb53b0268319f4d0d2719bb98d88958cfe31d58a22",
+        "licence": "CC BY 4.0, https://doi.org/10.24432/C5NS3V",
+    },
+    "beijing": {
+        "url": "https://archive.ics.uci.edu/static/public/501/"
+        "beijing+multi+site+air+quality+data.zip",
+        "path": "data/beijing/beijing_air_quality.zip",
+        "sha256": "b04da438b2f331ac0ffd45aebdfec0d20d2367feb5f6948c4b1f7ce1191e33c4",
+        "licence": "CC BY 4.0, https://doi.org/10.24432/C5RK5G",
     },
 }
 

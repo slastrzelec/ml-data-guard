@@ -27,6 +27,8 @@ class Dataset:
     target: str
     time_ordered: bool = False
     source: str = "synthetic"
+    #: For time-ordered tables with several interleaved series: the column that names the series.
+    group_by: str | None = None
 
     @property
     def features(self) -> tuple[str, ...]:
@@ -190,4 +192,151 @@ def load_covertype(path: str | Path, *, expected_rows: int | None = COVERTYPE_RO
         categorical=("wilderness_area", "soil_type"),
         target="cover_type",
         source="UCI Covertype, CC BY 4.0, https://doi.org/10.24432/C50K5N",
+    )
+
+
+NEWS_ROWS = 39_644
+NEWS_POPULAR_FROM = 1_400
+_NEWS_CHANNELS = ("lifestyle", "entertainment", "bus", "socmed", "tech", "world")
+_NEWS_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def _single_member(archive: zipfile.ZipFile, suffix: str) -> bytes:
+    members = [name for name in archive.namelist() if name.endswith(suffix)]
+    if len(members) != 1:
+        raise ValueError(f"expected exactly one {suffix} file in the archive, found {len(members)}")
+    return archive.read(members[0])
+
+
+def _decode_one_hot(
+    table: pd.DataFrame, prefix: str, levels: tuple[str, ...], other: str | None
+) -> np.ndarray:
+    """Turn indicator columns ``prefix + level`` into one categorical column.
+
+    Every row must have exactly one active indicator, or none when ``other`` names the level for
+    such rows.
+    """
+    block = table[[prefix + level for level in levels]].to_numpy()
+    active = block.sum(axis=1)
+    allowed = (0, 1) if other is not None else (1,)
+    if not (np.isin(block, (0, 1)).all() and np.isin(active, allowed).all()):
+        raise ValueError(f"columns {prefix}* are not a valid one-hot encoding")
+    names = np.array([*levels, other], dtype=object)
+    return names[np.where(active == 1, block.argmax(axis=1), len(levels))]
+
+
+def load_news(path: str | Path, *, expected_rows: int | None = NEWS_ROWS) -> Dataset:
+    """Read the UCI Online News Popularity archive from disk.
+
+    The task is the binary one of the dataset's authors: an article is *popular* when it has at
+    least 1,400 shares (the median). The URL and the age of the article (``timedelta``) are not
+    features. The six channel indicators and the seven weekday indicators are decoded into two
+    categorical columns (articles without a channel get ``other``); ``is_weekend`` is dropped
+    because the weekday already says it.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} not found; run `python tools/download_data.py news` first")
+    with zipfile.ZipFile(path) as archive:
+        table = pd.read_csv(io.BytesIO(_single_member(archive, ".csv")))
+    table.columns = [str(column).strip() for column in table.columns]
+    required = {"url", "timedelta", "shares", "is_weekend"}
+    if len(table.columns) != 61 or not required <= set(table.columns):
+        raise ValueError("unexpected columns: this is not the Online News Popularity table")
+    if expected_rows is not None and len(table) != expected_rows:
+        raise ValueError(f"expected {expected_rows} rows, found {len(table)}")
+    channel = _decode_one_hot(table, "data_channel_is_", _NEWS_CHANNELS, "other")
+    weekday = _decode_one_hot(table, "weekday_is_", _NEWS_WEEKDAYS, None)
+    indicators = [f"data_channel_is_{name}" for name in _NEWS_CHANNELS]
+    indicators += [f"weekday_is_{name}" for name in _NEWS_WEEKDAYS]
+    dropped = ["url", "timedelta", "shares", "is_weekend", *indicators]
+    numeric = tuple(column.lower() for column in table.columns if column not in dropped)
+    frame = table.drop(columns=dropped)
+    frame.columns = list(numeric)
+    if frame.isna().any().any() or not all(dtype.kind in "if" for dtype in frame.dtypes):
+        raise ValueError("the numeric features must be numbers without missing values")
+    frame["channel"] = channel
+    frame["weekday"] = weekday
+    frame["popular"] = (table["shares"].to_numpy() >= NEWS_POPULAR_FROM).astype(np.int64)
+    return Dataset(
+        "news",
+        frame,
+        numeric=numeric,
+        categorical=("channel", "weekday"),
+        target="popular",
+        source="UCI Online News Popularity, CC BY 4.0, https://doi.org/10.24432/C5NS3V",
+    )
+
+
+BEIJING_STATIONS = 12
+BEIJING_POLLUTED_ABOVE = 75.0
+_BEIJING_NUMERIC = {
+    "PM10": "pm10", "SO2": "so2", "NO2": "no2", "CO": "co", "O3": "o3", "TEMP": "temperature",
+    "PRES": "pressure", "DEWP": "dew_point", "RAIN": "rain", "WSPM": "wind_speed",
+}  # fmt: skip
+
+
+def load_beijing(path: str | Path, *, expected_stations: int | None = BEIJING_STATIONS) -> Dataset:
+    """Read the UCI Beijing Multi-Site Air Quality archive (hourly, 12 stations) from disk.
+
+    Rows are ordered by time and then by station, so a contiguous block of rows is a period of
+    time over all stations. The target says whether PM2.5 exceeds 75 micrograms per cubic metre;
+    hours without a PM2.5 reading are dropped. Two features describe the past of PM2.5 at the same
+    station and nothing else: the reading one hour earlier and the mean of the 24 hours before.
+    They are what the ``time_travel`` fault shifts into the future. Missing sensor readings are
+    kept as missing values.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"{path} not found; run `python tools/download_data.py beijing` first"
+        )
+    with zipfile.ZipFile(path) as archive:
+        nested = [name for name in archive.namelist() if name.endswith(".zip")]
+        if len(nested) == 1:  # the UCI download wraps the data in a second archive
+            archive = zipfile.ZipFile(io.BytesIO(archive.read(nested[0])))
+        members = sorted(
+            name for name in archive.namelist() if "PRSA_Data_" in name and name.endswith(".csv")
+        )
+        tables = [pd.read_csv(io.BytesIO(archive.read(name))) for name in members]
+    if expected_stations is not None and len(tables) != expected_stations:
+        raise ValueError(f"expected {expected_stations} station files, found {len(tables)}")
+    if not tables:
+        raise ValueError("the archive contains no station file")
+    parts = []
+    for table in tables:
+        needed = {"year", "month", "day", "hour", "PM2.5", "wd", "station", *_BEIJING_NUMERIC}
+        if not needed <= set(table.columns):
+            raise ValueError("a station file lacks expected columns")
+        if table["station"].nunique() != 1:
+            raise ValueError("a station file must describe exactly one station")
+        time = pd.to_datetime(table[["year", "month", "day", "hour"]])
+        hours = time.diff().dropna()
+        if not (hours == pd.Timedelta(hours=1)).all():
+            raise ValueError("a station file is not a gap-free hourly series in time order")
+        pm25 = table["PM2.5"]
+        part = pd.DataFrame({"time": time, "station": table["station"].astype(object)})
+        for source, name in _BEIJING_NUMERIC.items():
+            part[name] = table[source].astype(np.float64)
+        # Past values only: shift(1) excludes the current hour from both features.
+        part["pm25_lag_1h"] = pm25.shift(1)
+        part["pm25_lag_mean_24h"] = pm25.shift(1).rolling(24, min_periods=12).mean()
+        part["wind_direction"] = table["wd"].astype(object).where(table["wd"].notna(), None)
+        part["pm25"] = pm25
+        parts.append(part)
+    frame = pd.concat(parts, ignore_index=True)
+    frame = frame[frame["pm25"].notna()].sort_values(["time", "station"], kind="stable")
+    frame["polluted"] = (frame["pm25"].to_numpy() > BEIJING_POLLUTED_ABOVE).astype(np.int64)
+    numeric = (*_BEIJING_NUMERIC.values(), "pm25_lag_1h", "pm25_lag_mean_24h")
+    categorical = ("wind_direction", "station")
+    frame = frame[[*numeric, *categorical, "polluted"]].reset_index(drop=True)
+    return Dataset(
+        "beijing",
+        frame,
+        numeric=numeric,
+        categorical=categorical,
+        target="polluted",
+        time_ordered=True,
+        source="UCI Beijing Multi-Site Air Quality, CC BY 4.0, https://doi.org/10.24432/C5RK5G",
+        group_by="station",
     )

@@ -41,6 +41,8 @@ VALIDATE_TESTS = ("tests/test_validate.py",)
 COMPARE_TESTS = ("tests/test_compare.py",)
 MODELTEST_TESTS = ("tests/test_modeltest.py",)
 CLI_TESTS = ("tests/test_cli.py",)
+DATASETS = "src/mlguard/datasets.py"
+DATASET_TESTS = ("tests/test_datasets.py",)
 
 
 @dataclass(frozen=True)
@@ -639,6 +641,63 @@ MUTANTS = [
         '        print(f"error: {error}", file=sys.stderr)\n        return EXIT_USAGE',
         '        print(f"error: {error}", file=sys.stderr)\n        return EXIT_ANOMALIES',
         CLI_TESTS,
+    ),
+    Mutant(
+        "a rolling reference contains the batch it is compared with",
+        BENCH,
+        "                    self._columns[feature][start - size : start],",
+        "                    self._columns[feature][start - size + len(rows) : start + len(rows)],",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "the schema of the benchmark is inferred from every row",
+        BENCH,
+        "reference = dataset.frame.iloc[reference_rows][list(dataset.features)]",
+        "reference = dataset.frame[list(dataset.features)]",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "a constant feature can be chosen for a shift",
+        BENCH,
+        "            return bool(present.std() > 0)",
+        "            return True",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "time travel crosses from one series into another",
+        BENCH,
+        "    if FAULTS[fault].needs_time_order and dataset.group_by is not None:\n"
+        "        # several interleaved series",
+        "    if False:\n        # several interleaved series",
+        BENCH_TESTS,
+    ),
+    Mutant(
+        "the raw target of the news data is kept as a feature",
+        DATASETS,
+        'dropped = ["url", "timedelta", "shares", "is_weekend", *indicators]',
+        'dropped = ["url", "timedelta", "is_weekend", *indicators]',
+        DATASET_TESTS,
+    ),
+    Mutant(
+        "the lag feature of the air-quality data is the current reading",
+        DATASETS,
+        'part["pm25_lag_1h"] = pm25.shift(1)',
+        'part["pm25_lag_1h"] = pm25',
+        DATASET_TESTS,
+    ),
+    Mutant(
+        "the 24-hour mean of the air-quality data includes the current hour",
+        DATASETS,
+        "pm25.shift(1).rolling(24, min_periods=12).mean()",
+        "pm25.rolling(24, min_periods=12).mean()",
+        DATASET_TESTS,
+    ),
+    Mutant(
+        "hours without a reading are kept with a made-up label",
+        DATASETS,
+        'frame = frame[frame["pm25"].notna()].sort_values(',
+        "frame = frame.sort_values(",
+        DATASET_TESTS,
     ),
 ]
 

@@ -65,29 +65,90 @@ def _expected_type(feature: FeatureSchema, value: object) -> bool:
     return kind == feature.dtype
 
 
+@dataclass(frozen=True)
+class FeatureFlags:
+    """Row-level findings for one feature: the raw material of every anomaly."""
+
+    present: np.ndarray  # the cell holds a value
+    mismatched: np.ndarray  # the value has the wrong type
+    violating: np.ndarray  # a well-typed value is outside the range or the domain
+
+
+def feature_flags(feature: FeatureSchema, column: np.ndarray) -> FeatureFlags:
+    """Check every cell of a column against the feature's expectations.
+
+    Numeric arrays are checked without a Python loop. Text in a numeric feature is a type
+    mismatch only; it is not counted again as missing or out of range.
+    """
+    column = np.asarray(column)
+    if feature.kind == "numeric" and column.dtype.kind in "iuf":
+        numbers = column.astype(np.float64)
+        present = ~np.isnan(numbers)
+        whole = np.isinf(numbers) | (numbers == np.floor(numbers))
+        mismatched = present & ~whole if feature.dtype == "int" else np.zeros(len(numbers), bool)
+        typed = present & ~mismatched
+    else:
+        values = column.astype(object)
+        present = np.array([not is_missing(value) for value in values], dtype=bool)
+        typed = np.array(
+            [
+                bool(here) and _expected_type(feature, value)
+                for value, here in zip(values, present, strict=True)
+            ],
+            dtype=bool,
+        )
+        if feature.kind == "numeric" and feature.dtype == "int":
+            # whole floats are fine in an integer feature
+            for position in np.flatnonzero(present & ~typed):
+                value = values[position]
+                if value_type(value) == "float" and float(value).is_integer():
+                    typed[position] = True
+        mismatched = present & ~typed
+        numbers = np.full(len(values), np.nan)
+        if feature.kind == "numeric" and typed.any():
+            numbers[typed] = values[typed].astype(np.float64)
+
+    violating = np.zeros(len(present), dtype=bool)
+    if feature.kind == "numeric":
+        low = -np.inf if feature.minimum is None else feature.minimum
+        high = np.inf if feature.maximum is None else feature.maximum
+        with np.errstate(invalid="ignore"):
+            violating = typed & ((numbers < low) | (numbers > high))
+    elif feature.domain is not None:
+        values = column.astype(object)
+        for position in np.flatnonzero(typed):
+            violating[position] = not feature.allows(values[position])
+    return FeatureFlags(present=present, mismatched=mismatched, violating=violating)
+
+
+def breaks_schema(feature: FeatureSchema, flags: FeatureFlags) -> bool:
+    """Whether the flagged rows amount to at least one error-level anomaly for the feature."""
+    n_rows = len(flags.present)
+    if n_rows == 0:
+        return True
+    tolerance = (
+        feature.max_out_of_range_fraction
+        if feature.kind == "numeric"
+        else feature.max_unexpected_fraction
+    )
+    return bool(
+        flags.mismatched.any()
+        or flags.present.mean() < feature.min_presence - _EPSILON
+        or flags.violating.mean() > tolerance + _EPSILON
+    )
+
+
 def _check_feature(
     feature: FeatureSchema, values: np.ndarray, *, show_values: bool
 ) -> list[Anomaly]:
     anomalies = []
     n_rows = len(values)
-    present = np.array([not is_missing(value) for value in values], dtype=bool)
-    typed = np.array(
-        [
-            bool(here) and _expected_type(feature, value)
-            for value, here in zip(values, present, strict=True)
-        ],
-        dtype=bool,
-    )
-    if feature.kind == "numeric" and feature.dtype == "int":
-        # a float column is fine for an integer feature as long as every number is whole
-        for position in np.flatnonzero(present & ~typed):
-            value = values[position]
-            if value_type(value) == "float" and float(value).is_integer():
-                typed[position] = True
+    flags = feature_flags(feature, values)
+    items = np.asarray(values).astype(object)
 
-    mismatched = int((present & ~typed).sum())
+    mismatched = int(flags.mismatched.sum())
     if mismatched:
-        found = sorted({value_type(value) for value in values[present & ~typed]})
+        found = sorted({value_type(value) for value in items[flags.mismatched]})
         anomalies.append(
             Anomaly(
                 AnomalyType.TYPE_MISMATCH,
@@ -101,14 +162,14 @@ def _check_feature(
             )
         )
 
-    presence = float(present.mean())
+    presence = float(flags.present.mean())
     if presence < feature.min_presence - _EPSILON:
         anomalies.append(
             Anomaly(
                 AnomalyType.LOW_PRESENCE,
                 feature.name,
                 "error",
-                f"{_share(n_rows - int(present.sum()), n_rows)} are missing; "
+                f"{_share(n_rows - int(flags.present.sum()), n_rows)} are missing; "
                 f"at least {feature.min_presence:.1%} of the rows must have a value",
                 statistic=presence,
                 threshold=feature.min_presence,
@@ -117,13 +178,13 @@ def _check_feature(
             )
         )
 
-    checked = values[typed]
-    if feature.kind == "numeric" and checked.size:
-        numbers = checked.astype(np.float64)
-        low = -np.inf if feature.minimum is None else feature.minimum
-        high = np.inf if feature.maximum is None else feature.maximum
-        outside = int(((numbers < low) | (numbers > high)).sum())
+    outside = int(flags.violating.sum())
+    if feature.kind == "numeric":
         if outside / n_rows > feature.max_out_of_range_fraction + _EPSILON:
+            well_typed = flags.present & ~flags.mismatched
+            numbers = items[well_typed].astype(np.float64)
+            low = -np.inf if feature.minimum is None else feature.minimum
+            high = np.inf if feature.maximum is None else feature.maximum
             observed = f"[{numbers.min():g}, {numbers.max():g}]"
             anomalies.append(
                 Anomaly(
@@ -138,25 +199,23 @@ def _check_feature(
                     f"max_out_of_range_fraction to {outside / n_rows:.4g}",
                 )
             )
-    if feature.kind == "categorical" and feature.domain is not None and checked.size:
-        unexpected = [value for value in checked if not feature.allows(value)]
-        if len(unexpected) / n_rows > feature.max_unexpected_fraction + _EPSILON:
-            distinct = sorted({plain_token(value) for value in unexpected}, key=repr)
-            detail = f"{len(distinct)} distinct value(s) not in the domain"
-            if show_values:
-                detail += ": " + ", ".join(repr(value) for value in distinct[:5])
-            anomalies.append(
-                Anomaly(
-                    AnomalyType.UNEXPECTED_VALUES,
-                    feature.name,
-                    "error",
-                    f"{_share(len(unexpected), n_rows)} hold {detail}",
-                    statistic=len(unexpected) / n_rows,
-                    threshold=feature.max_unexpected_fraction,
-                    suggestion=f"add the new value(s) to the domain of {feature.name!r}, or raise "
-                    f"max_unexpected_fraction to {len(unexpected) / n_rows:.4g}",
-                )
+    elif outside / n_rows > feature.max_unexpected_fraction + _EPSILON:
+        distinct = sorted({plain_token(value) for value in items[flags.violating]}, key=repr)
+        detail = f"{len(distinct)} distinct value(s) not in the domain"
+        if show_values:
+            detail += ": " + ", ".join(repr(value) for value in distinct[:5])
+        anomalies.append(
+            Anomaly(
+                AnomalyType.UNEXPECTED_VALUES,
+                feature.name,
+                "error",
+                f"{_share(outside, n_rows)} hold {detail}",
+                statistic=outside / n_rows,
+                threshold=feature.max_unexpected_fraction,
+                suggestion=f"add the new value(s) to the domain of {feature.name!r}, or raise "
+                f"max_unexpected_fraction to {outside / n_rows:.4g}",
             )
+        )
     return anomalies
 
 
@@ -186,7 +245,7 @@ def validate_batch(
                 )
             )
             continue
-        values = batch[columns[feature.name]].to_numpy(dtype=object)
+        values = batch[columns[feature.name]].to_numpy()
         anomalies.extend(_check_feature(feature, values, show_values=show_values))
     for name in columns:
         if name not in schema.names and name not in schema.ignored:

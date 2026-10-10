@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import gzip
+import io
 import zipfile
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
 
 from mlguard.datasets import (
     COVERTYPE_NUMERIC,
+    load_beijing,
     load_covertype,
+    load_news,
     make_synthetic,
     make_synthetic_series,
 )
@@ -122,3 +126,174 @@ def test_covertype_loader_rejects_damaged_files(tmp_path: Path) -> None:
         archive.writestr("readme.txt", "nothing")
     with pytest.raises(ValueError, match="exactly one"):
         load_covertype(tmp_path / "empty.zip")
+
+
+# --------------------------------------------------------------------------- Online News Popularity
+
+NEWS_CHANNELS = ("lifestyle", "entertainment", "bus", "socmed", "tech", "world")
+NEWS_DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def news_table(n_rows: int = 30, seed: int = 0) -> pd.DataFrame:
+    """A table with the 61 columns of the real file, including their leading spaces."""
+    rng = np.random.default_rng(seed)
+    columns: dict[str, object] = {"url": [f"http://example.org/{index}" for index in range(n_rows)]}
+    columns[" timedelta"] = np.arange(n_rows, 0, -1).astype(float)
+    for index in range(44):
+        columns[f" Feature_{index:02d}"] = rng.normal(size=n_rows)
+    channel = rng.integers(0, 7, n_rows)  # 6 means "no channel"
+    for position, name in enumerate(NEWS_CHANNELS):
+        columns[f" data_channel_is_{name}"] = (channel == position).astype(float)
+    day = rng.integers(0, 7, n_rows)
+    for position, name in enumerate(NEWS_DAYS):
+        columns[f" weekday_is_{name}"] = (day == position).astype(float)
+    columns[" is_weekend"] = (day >= 5).astype(float)
+    columns[" shares"] = rng.integers(1, 3_000, n_rows)
+    table = pd.DataFrame(columns)
+    table.attrs["channel"], table.attrs["day"] = channel, day
+    return table
+
+
+def write_news(path: Path, table: pd.DataFrame) -> Path:
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("OnlineNewsPopularity/OnlineNewsPopularity.names", "description")
+        archive.writestr("OnlineNewsPopularity/OnlineNewsPopularity.csv", table.to_csv(index=False))
+    return path
+
+
+def test_news_loader_decodes_indicators_and_builds_the_binary_target(tmp_path: Path) -> None:
+    table = news_table()
+    dataset = load_news(write_news(tmp_path / "news.zip", table), expected_rows=30)
+    frame = dataset.frame
+    assert len(dataset.numeric) == 44
+    assert dataset.numeric[0] == "feature_00"  # stripped and lower-cased
+    assert dataset.categorical == ("channel", "weekday")
+    assert set(frame.columns) == {*dataset.numeric, "channel", "weekday", "popular"}
+    names = np.array([*NEWS_CHANNELS, "other"], dtype=object)
+    assert frame["channel"].tolist() == names[table.attrs["channel"]].tolist()
+    assert (
+        frame["weekday"].tolist() == np.array(NEWS_DAYS, dtype=object)[table.attrs["day"]].tolist()
+    )
+    np.testing.assert_array_equal(frame["popular"], (table[" shares"] >= 1_400).astype(int))
+    assert not dataset.time_ordered
+    for leaked in ("url", "timedelta", "shares", "is_weekend"):
+        assert leaked not in frame.columns  # neither identifiers nor the raw target are features
+
+
+def test_news_loader_rejects_damaged_files(tmp_path: Path) -> None:
+    table = news_table()
+    with pytest.raises(FileNotFoundError, match="download_data"):
+        load_news(tmp_path / "missing.zip")
+    with pytest.raises(ValueError, match="expected 39644 rows"):
+        load_news(write_news(tmp_path / "short.zip", table))
+    with pytest.raises(ValueError, match="unexpected columns"):
+        load_news(
+            write_news(tmp_path / "narrow.zip", table.drop(columns=[" Feature_00"])),
+            expected_rows=30,
+        )
+    two_days = table.copy()
+    two_days.loc[0, [" weekday_is_monday", " weekday_is_tuesday"]] = 1.0
+    with pytest.raises(ValueError, match="weekday_is_"):
+        load_news(write_news(tmp_path / "days.zip", two_days), expected_rows=30)
+    two_channels = table.copy()
+    two_channels.loc[0, [" data_channel_is_bus", " data_channel_is_tech"]] = 1.0
+    with pytest.raises(ValueError, match="data_channel_is_"):
+        load_news(write_news(tmp_path / "channels.zip", two_channels), expected_rows=30)
+    holes = table.copy()
+    holes.loc[0, " Feature_03"] = np.nan
+    with pytest.raises(ValueError, match="without missing values"):
+        load_news(write_news(tmp_path / "holes.zip", holes), expected_rows=30)
+    with zipfile.ZipFile(tmp_path / "empty.zip", "w") as archive:
+        archive.writestr("readme.txt", "nothing")
+    with pytest.raises(ValueError, match=r"exactly one \.csv"):
+        load_news(tmp_path / "empty.zip")
+
+
+# --------------------------------------------------------------------------- Beijing air quality
+
+
+def station_table(station: str, n_hours: int = 60, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    time = pd.date_range("2013-03-01", periods=n_hours, freq="h")
+    table = pd.DataFrame(
+        {
+            "No": np.arange(1, n_hours + 1),
+            "year": time.year, "month": time.month, "day": time.day, "hour": time.hour,
+            "PM2.5": rng.uniform(10, 150, n_hours).round(),
+        }
+    )  # fmt: skip
+    for name in ("PM10", "SO2", "NO2", "CO", "O3", "TEMP", "PRES", "DEWP", "RAIN"):
+        table[name] = rng.uniform(0, 100, n_hours).round(1)
+    table["wd"] = rng.choice(np.array(["N", "E", "S", "W"], dtype=object), n_hours)
+    table["WSPM"] = rng.uniform(0, 5, n_hours).round(1)
+    table["station"] = station
+    return table
+
+
+def write_beijing(path: Path, tables: dict[str, pd.DataFrame], *, nested: bool = True) -> Path:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer if nested else path, "w") as archive:
+        for station, table in tables.items():
+            name = f"PRSA_Data_20130301-20170228/PRSA_Data_{station}_20130301-20170228.csv"
+            archive.writestr(name, table.to_csv(index=False))
+    if nested:
+        with zipfile.ZipFile(path, "w") as outer:
+            outer.writestr("PRSA2017_Data_20130301-20170228.zip", buffer.getvalue())
+            outer.writestr("data.csv", "unrelated,file\n1,2\n")
+    return path
+
+
+@pytest.mark.parametrize("nested", [True, False])
+def test_beijing_loader_orders_by_time_and_builds_past_only_features(
+    tmp_path: Path, nested: bool
+) -> None:
+    north, south = station_table("North", seed=1), station_table("South", seed=2)
+    north.loc[5, "PM2.5"] = np.nan  # an hour without a reading
+    north.loc[7, "wd"] = None
+    path = write_beijing(tmp_path / "beijing.zip", {"North": north, "South": south}, nested=nested)
+    dataset = load_beijing(path, expected_stations=2)
+    frame = dataset.frame
+    assert dataset.time_ordered
+    assert dataset.group_by == "station"
+    assert dataset.target == "polluted"
+    assert len(frame) == 119  # 2 x 60 hours minus the hour without a reading
+    assert frame["station"].tolist()[:4] == ["North", "South", "North", "South"]  # hour by hour
+    assert "pm25" not in frame.columns  # the current reading is the target, never a feature
+
+    for name, table in (("North", north), ("South", south)):
+        own = frame[frame["station"] == name].reset_index(drop=True)
+        readings = table["PM2.5"]
+        kept = readings.notna().to_numpy()
+        np.testing.assert_array_equal(own["polluted"], (readings[kept] > 75).astype(int))
+        # the reading one hour earlier, and the mean of the 24 hours before: nothing from now
+        np.testing.assert_allclose(own["pm25_lag_1h"], readings.shift(1)[kept], equal_nan=True)
+        expected_mean = readings.shift(1).rolling(24, min_periods=12).mean()[kept]
+        np.testing.assert_allclose(own["pm25_lag_mean_24h"], expected_mean, equal_nan=True)
+        np.testing.assert_allclose(own["temperature"], table["TEMP"][kept])
+    assert frame["wind_direction"].isna().sum() == 1
+    assert frame["wind_direction"].dropna().map(type).eq(str).all()
+
+
+def test_beijing_loader_rejects_damaged_files(tmp_path: Path) -> None:
+    good = station_table("North")
+    with pytest.raises(FileNotFoundError, match="download_data"):
+        load_beijing(tmp_path / "missing.zip")
+    with pytest.raises(ValueError, match="expected 12 station files"):
+        load_beijing(write_beijing(tmp_path / "one.zip", {"North": good}))
+    with pytest.raises(ValueError, match="gap-free hourly"):
+        load_beijing(
+            write_beijing(tmp_path / "gap.zip", {"North": good.drop(index=10)}), expected_stations=1
+        )
+    with pytest.raises(ValueError, match="lacks expected columns"):
+        load_beijing(
+            write_beijing(tmp_path / "cols.zip", {"North": good.drop(columns=["TEMP"])}),
+            expected_stations=1,
+        )
+    mixed = good.copy()
+    mixed.loc[0, "station"] = "Elsewhere"
+    with pytest.raises(ValueError, match="exactly one station"):
+        load_beijing(write_beijing(tmp_path / "mixed.zip", {"North": mixed}), expected_stations=1)
+    with zipfile.ZipFile(tmp_path / "empty.zip", "w") as archive:
+        archive.writestr("readme.txt", "nothing")
+    with pytest.raises(ValueError, match="no station file"):
+        load_beijing(tmp_path / "empty.zip", expected_stations=None)

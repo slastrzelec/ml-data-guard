@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -25,6 +26,8 @@ from mlguard.bench import (
 )
 from mlguard.datasets import Dataset, make_synthetic, make_synthetic_series
 from mlguard.detectors import TEXTBOOK_RULES
+from mlguard.inject import FAULTS
+from mlguard.schema import infer_schema
 
 FRACTIONS = (0.40, 0.25, 0.25, 0.10)
 SMALL = BenchConfig(
@@ -263,7 +266,7 @@ def test_clean_fast_path_gives_the_same_scores_as_scoring_raw_values() -> None:
     for feature in dataset.features:
         raw = dataset.frame[feature].to_numpy()[rows]
         assert scorer.clean(feature, rows) == pytest.approx(
-            scorer.faulty(feature, raw), nan_ok=True
+            scorer.faulty(feature, raw, rows), nan_ok=True
         )
 
 
@@ -343,13 +346,15 @@ def test_fault_levels_and_feature_breakdown_are_recorded(result: dict) -> None:
     )
     new_category = faults_of(result, "new_category")[0.2]
     assert new_category["calibrated"]["ks"] is None  # KS does not apply to categorical features
-    assert set(new_category["textbook"]) == set(TEXTBOOK_RULES)
+    assert set(new_category["textbook"]) == {*TEXTBOOK_RULES, "schema"}
 
 
 def test_a_dropped_feature_is_not_scorable_but_has_a_model_impact(result: dict) -> None:
     dropped = faults_of(result, "dropped_feature")[1]
     assert dropped["scorable"] is False
     assert all(entry is None for entry in dropped["calibrated"].values())
+    assert dropped["textbook"]["schema"]["rate"] == 1.0  # a missing column is a schema error
+    assert dropped["textbook"]["psi>0.2"] is None
     impact = [entry for entry in result["model"]["faults"] if entry["fault"] == "dropped_feature"]
     assert len(impact) == 1
     assert impact[0]["accuracy_drop"] > 0
@@ -407,7 +412,7 @@ def test_report_is_a_pure_function_of_the_result(result: dict) -> None:
         "## Batch size 300",
         "### False alarms on clean batches",
         "### Recall, calibrated thresholds",
-        "### Recall, textbook rules",
+        "### Recall, textbook rules and schema check",
         "## Does the alert matter?",
         "## What this report does not measure",
     ):
@@ -440,3 +445,203 @@ def test_command_line_writes_result_and_report(tmp_path: Path) -> None:
     assert written["model"] is None
     assert "Does the alert matter?" not in report.read_text(encoding="utf-8")
     assert "Commit: abc" in report.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- schema check as a rule
+
+
+def test_schema_check_is_quiet_on_clean_batches_and_sees_schema_violations(result: dict) -> None:
+    clean = result["runs"][0]["clean"]["textbook"]
+    assert clean["per_feature"]["schema"]["rate"] <= 0.01
+    assert clean["per_batch"]["schema"]["rate"] <= 0.05
+    for fault, severity in [("unit_change", 0.01), ("type_change", 0.001), ("new_category", 0.001)]:
+        assert faults_of(result, fault)[severity]["textbook"]["schema"]["rate"] >= 0.9, fault
+    # faults that keep every value legal are invisible to a schema
+    for fault, severity in [("mean_shift", 0.05), ("duplicate_rows", 0.2), ("tiny_noise", 0.0001)]:
+        assert faults_of(result, fault)[severity]["textbook"]["schema"]["rate"] <= 0.1, fault
+
+
+def test_the_schema_of_the_benchmark_is_inferred_from_the_reference_split_only() -> None:
+    dataset = make_synthetic(TINY.dataset_rows, TINY.seed)
+    splits = make_splits(len(dataset.frame), TINY.split, seed=TINY.seed, time_ordered=False)
+    others = np.concatenate([splits.calibration, splits.evaluation, splits.held_out])
+    clean = bench._SchemaCheck(dataset, splits.reference)
+    frame = dataset.frame.copy()
+    for feature in dataset.numeric:  # same column types, very different values
+        frame.loc[others, feature] = frame.loc[others, feature] * 1000
+    for feature in dataset.categorical:
+        frame.loc[others, feature] = "CORRUPTED"
+    dirty = bench._SchemaCheck(dataclasses.replace(dataset, frame=frame), splits.reference)
+    assert clean.schema == dirty.schema
+    assert "CORRUPTED" not in clean.schema.to_json()
+    reference = dataset.frame.iloc[splits.reference][list(dataset.features)]
+    assert clean.schema == infer_schema(reference)
+
+
+def test_schema_fast_path_agrees_with_checking_the_batch_itself() -> None:
+    dataset = make_synthetic(6_000, seed=5)
+    splits = make_splits(6_000, FRACTIONS, seed=5, time_ordered=False)
+    check = bench._SchemaCheck(dataset, splits.reference)
+    rng = np.random.default_rng(0)
+    for _ in range(20):
+        rows = rng.choice(splits.evaluation, size=40, replace=False)
+        batch = dataset.frame.iloc[rows]
+        for feature in dataset.features:
+            assert check.clean(feature, rows) == check.faulty(feature, batch)
+
+
+# --------------------------------------------------------------------------- injectable features
+
+
+@pytest.mark.parametrize(
+    ("fault", "values", "expected"),
+    [
+        ("mean_shift", [0.0, 0.0, 0.0], False),
+        ("mean_shift", [0.0, 1.0, np.nan], True),
+        ("variance_change", [np.nan, np.nan], False),
+        ("unit_change", [0.0, 0.0, np.nan], False),
+        ("unit_change", [0.0, 2.0], True),
+        ("out_of_domain_numeric", [np.nan], False),
+        ("out_of_domain_numeric", [5.0, 5.0], True),
+        ("type_change", [None, np.nan], False),
+        ("missing_rate_increase", ["a", None], True),
+        ("pinned_value", [0.0, 0.0], True),
+    ],
+)
+def test_injectable(fault: str, values: list, expected: bool) -> None:
+    assert bench._injectable(fault, np.array(values, dtype=object)) is expected
+
+
+def test_a_feature_that_is_constant_in_a_batch_is_not_chosen_for_a_shift() -> None:
+    """Real data has such features (no rain for a week); the run must not stop or mislabel."""
+    dataset = make_synthetic(8_000, seed=2)
+    frame = dataset.frame.copy()
+    frame["x_lognormal"] = 0.0  # constant everywhere, like a dry season
+    dataset = dataclasses.replace(dataset, frame=frame)
+    config = dataclasses.replace(
+        TINY, model=False, n_seeds=20, faults=("mean_shift", "unit_change")
+    )
+    result = run_benchmark(config, dataset=dataset)
+    for entry in result["runs"][0]["faults"]:
+        assert "x_lognormal" not in entry["by_feature"]
+        assert sum(counts["linf"][1] for counts in entry["by_feature"].values()) == 20
+
+
+# --------------------------------------------------------------------------- several series
+
+
+def grouped_series(n_rows: int = 4_000) -> Dataset:
+    base = make_synthetic_series(n_rows, seed=6)
+    frame = base.frame.copy()
+    frame["site"] = np.array(["north", "south"], dtype=object)[np.arange(n_rows) % 2]
+    return dataclasses.replace(base, frame=frame, categorical=("regime", "site"), group_by="site")
+
+
+def test_time_travel_shifts_within_each_series_and_never_picks_the_series_name() -> None:
+    dataset = grouped_series()
+    assert "site" not in bench._candidates(dataset, "time_travel")
+    assert "site" in bench._candidates(dataset, "pinned_value")
+    rows = np.arange(100, 200)
+    batch = bench._batch(dataset, rows)
+    leaked = bench._inject(dataset, batch, "time_travel", "lag_1", 1, TINY, 0, 0, 0)
+    expected = FAULTS["time_travel"].apply(
+        batch, "lag_1", 1, np.random.default_rng(0), group_by="site"
+    )
+    np.testing.assert_array_equal(leaked["lag_1"].to_numpy(), expected["lag_1"].to_numpy())
+    # one step later within a site is two rows later in the interleaved table
+    np.testing.assert_array_equal(leaked["lag_1"].to_numpy()[:-2], batch["lag_1"].to_numpy()[2:])
+
+
+# --------------------------------------------------------------------------- rolling reference
+
+
+def seasonal(n_rows: int = 300_000, seed: int = 0) -> Dataset:
+    """One feature with a slow seasonal cycle, one category, and a target."""
+    rng = np.random.default_rng(seed)
+    season = 5.0 * np.sin(2 * np.pi * np.arange(n_rows) / 60_000)
+    value = season + rng.normal(0.0, 1.0, n_rows)
+    frame = pd.DataFrame(
+        {
+            "value": value,
+            "kind": rng.choice(np.array(["a", "b", "c"], dtype=object), n_rows),
+            "target": (value + rng.normal(0.0, 1.0, n_rows) > 0).astype(np.int64),
+        }
+    )
+    return Dataset("seasonal", frame, ("value",), ("kind",), "target", time_ordered=True)
+
+
+SEASONAL = BenchConfig(
+    dataset="seasonal",
+    seed=3,
+    batch_sizes=(300,),
+    n_calibration_batches=300,
+    n_clean_batches=300,
+    n_seeds=40,
+    faults=("mean_shift",),
+    severities={"mean_shift": (2.0,)},
+    model=False,
+    rolling_reference_batches=3,
+)
+
+
+def test_a_rolling_reference_sees_a_shift_that_a_static_one_hides_behind_the_seasons() -> None:
+    dataset = seasonal()
+    static = run_benchmark(SEASONAL, dataset=dataset)
+    rolling = run_benchmark(
+        dataclasses.replace(SEASONAL, reference_mode="rolling"), dataset=dataset
+    )
+    recall = {
+        name: result["runs"][0]["faults"][0]["calibrated"]["linf"]["rate"]
+        for name, result in (("static", static), ("rolling", rolling))
+    }
+    assert recall["rolling"] >= 0.9
+    assert recall["static"] <= 0.6
+    assert recall["rolling"] - recall["static"] >= 0.3
+    for result in (static, rolling):
+        assert result["runs"][0]["clean"]["calibrated"]["per_feature"]["linf"]["rate"] <= 0.05
+    assert "Reference: rolling, the 3 batches" in render_report(rolling)
+    assert "Reference: static" in render_report(static)
+
+
+def test_rolling_reference_is_deterministic_and_never_contains_the_batch() -> None:
+    dataset = seasonal(60_000)
+    config = dataclasses.replace(SEASONAL, reference_mode="rolling", n_seeds=5)
+    assert to_json(run_benchmark(config, dataset=dataset)) == to_json(
+        run_benchmark(config, dataset=dataset)
+    )
+    scorer = bench._RollingScorer(dataset, config)
+    rows = np.arange(30_000, 30_300)
+    before = scorer.clean("value", rows)
+    garbled = dataset.frame.copy()
+    garbled.loc[30_000:, "value"] = 1e9  # the batch and everything after it
+    changed = bench._RollingScorer(dataclasses.replace(dataset, frame=garbled), config)
+    reference_before = scorer._reference("value", rows)
+    reference_after = changed._reference("value", rows)
+    np.testing.assert_array_equal(reference_before.counts, reference_after.counts)
+    np.testing.assert_array_equal(reference_before.edges, reference_after.edges)
+    assert before["linf"] < 0.5
+
+
+def test_rolling_reference_needs_time_ordered_data_and_enough_history() -> None:
+    config = dataclasses.replace(TINY, model=False, reference_mode="rolling")
+    with pytest.raises(ValueError, match="time-ordered"):
+        run_benchmark(config)
+    scorer = bench._RollingScorer(seasonal(5_000), SEASONAL)
+    with pytest.raises(ValueError, match="not enough rows"):
+        scorer.clean("value", np.arange(100, 400))
+    with pytest.raises(ValueError, match="reference_mode"):
+        dataclasses.replace(TINY, reference_mode="sliding")
+    with pytest.raises(ValueError, match="rolling_reference_batches"):
+        dataclasses.replace(TINY, rolling_reference_batches=0)
+
+
+def test_a_window_without_any_value_gives_no_score_and_no_alarm() -> None:
+    dataset = seasonal(10_000)
+    frame = dataset.frame.copy()
+    frame.loc[4_000:4_999, "value"] = np.nan  # a sensor outage
+    scorer = bench._RollingScorer(dataclasses.replace(dataset, frame=frame), SEASONAL)
+    scores = scorer.clean("value", np.arange(4_900, 5_200))  # reference window: rows 4,000-4,899
+    assert all(np.isnan(value) for value in scores.values())
+    calibrated, textbook = bench._alarms(scores, {"linf": 0.1, "ks": 0.1})
+    assert not any(calibrated.values())
+    assert not any(textbook.values())

@@ -1,6 +1,6 @@
 # SPEC: ml-data-guard
 
-Status: **APPROVED v0.4 (2026-10-10).** Phase 1 complete (audit in section 13); phase 2 design in section 14. Scope changes go into this file first.
+Status: **APPROVED v0.5 (2026-10-10).** Phases 1 and 2 complete (audits in section 13); phase 3 design in section 15. Scope changes go into this file first.
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
@@ -49,9 +49,10 @@ independent implementation and evaluation, not a copy of TFDV.
 6. Data without a time order (Covertype, Online News Popularity): rows are shuffled once with a fixed seed
    before splitting, because the files are not stored in random order; batches are disjoint slices.
 7. Time-ordered data (Beijing air quality, synthetic series): splits are contiguous in time and ordered
-   reference < calibration < evaluation < held-out; no shuffling across the boundaries. Thresholds are
-   calibrated on clean batches that are compared with a reference window at the same time lag as in
-   evaluation, so that natural seasonal drift is part of the calibrated null and not counted as a detection.
+   reference < calibration < evaluation < held-out; no shuffling across the boundaries. Calibration and
+   evaluation each cover a full year of the Beijing data, so natural seasonal variation is part of the
+   calibrated null and not counted as a detection. With a rolling reference (section 15) a batch is compared
+   with the rows just before it, never with itself or with later rows.
 8. Bin edges and category vocabularies used by a distance come from the reference split only.
 
 ## 4. Components
@@ -211,7 +212,7 @@ ml-data-guard/
 | Role | Dataset | Size | Licence | Phase |
 |---|---|---|---|---|
 | Classification | Covertype (UCI, DOI 10.24432/C50K5N) | 581,012 rows, 54 features, no missing values | CC BY 4.0 | 1 |
-| Regression | Online News Popularity (UCI, DOI 10.24432/C5NS3V) | about 40k rows, 58 features, no missing values | CC BY 4.0 | 3 |
+| Classification (planned as regression, see section 15) | Online News Popularity (UCI, DOI 10.24432/C5NS3V) | 39,644 rows, 58 predictive columns, no missing values | CC BY 4.0 | 3 |
 | Time-ordered | Beijing Multi-Site Air Quality (UCI, DOI 10.24432/C5RK5G) | 420,768 hourly rows, 12 stations, 2013-2017, missing values | CC BY 4.0 | 3 |
 
 - None of the three contains records of individual people. CC BY 4.0 requires attribution: `data/README.md`
@@ -365,4 +366,61 @@ walk-through on synthetic data and a GitHub Actions workflow to copy.
 3. The skew comparison flags `time_travel` in a test where the distribution detectors do not.
 4. No command prints cell values by default; a schema with `domains=none` contains no value from the data (tested).
 5. CI stays green on Python 3.11 and 3.12; mutation checks cover the new modules.
+
+## 15. Phase 3 design: two more datasets, a rolling reference, the schema as a rule
+
+### 15.1 Datasets
+
+- **Online News Popularity** (39,644 rows). The task is the binary one of the dataset's authors: popular
+  means at least 1,400 shares (the median). The first plan said regression; the benchmark measures the
+  effect of a fault on classification accuracy, and a second metric for one dataset would have blurred the
+  comparison. URL and article age are not features. The channel and weekday indicators are decoded into two
+  categorical columns: 44 numeric and 2 categorical features. Batches of 500 and 1,000 rows; with pools of
+  about 9,900 rows the finite-pool effect of section 6 is larger here than anywhere else.
+- **Beijing Multi-Site Air Quality** (12 stations, hourly, 412,029 rows with a PM2.5 reading). Rows are
+  ordered by time and then by station. Target: PM2.5 above 75. Features: ten sensor readings, wind
+  direction, station, and two features that describe the past of PM2.5 at the same station (one hour
+  earlier; mean of the 24 hours before). `time_travel` shifts a feature in time within each station and is
+  never applied to the station column itself.
+
+Both loaders validate the layout of the downloaded file; both checksums are pinned.
+
+### 15.2 Rolling reference
+
+On data with seasons a week never looks like the whole year, so thresholds calibrated against a static
+reference become very wide. `reference_mode: rolling` compares every batch with the rows just before it
+(default: five batches). Statistics are fitted on that window only. Thresholds are still calibrated on
+clean batches of the calibration split, each against its own preceding window. Only for time-ordered data.
+A window that holds no value of a feature gives no score and therefore no alarm. Beijing is run in both
+modes; whether the rolling reference helps on this data is an open question that the run answers.
+
+### 15.3 The schema check as one more rule
+
+The single-batch validator of phase 2 joins the benchmark as a rule that needs no calibration: the schema is
+inferred from the reference split with the default heuristics and is not edited by hand; a feature of a batch
+alarms when it has at least one error-level anomaly. Its false alarms on clean batches are measured like those
+of every other rule. This makes `dropped_feature` scorable (by this rule only) and lets the report compare
+"does the data still obey its contract" with "does the data still look the same".
+
+### 15.4 Faults that cannot be injected into a batch
+
+Real features can be constant or empty within a batch (no rain for a week). A mean shift needs a spread, a
+unit change a non-zero value, several faults at least one value. The faulted feature of a run is therefore
+drawn among the features on which the fault can act in that batch. On the datasets of phase 1 this changes
+nothing (checked: the smoke run is identical); on Beijing it means that such features are faulted less often.
+
+### 15.5 Consequences for published results
+
+The result files gain the schema rule and two config fields, so all published runs are repeated at the final
+commit. Unchanged parts must come out identical (the determinism of section 6 is the check).
+
+### 15.6 Acceptance criteria for phase 3
+
+1. Results and reports for Covertype, Online News Popularity, Beijing (static and rolling) and both synthetic
+   sets come from one commit and are reproducible from the stored configs.
+2. README states the findings with intervals and names what was not measured; no claim without a number in
+   the result files.
+3. Portfolio page with the recruiter-style Testing section, linked from the portfolio index and the repository.
+4. The optional comparison with TFDV / Evidently is either done as an optional extra or explicitly dropped
+   with the reason.
 
