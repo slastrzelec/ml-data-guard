@@ -14,7 +14,9 @@ implementation and evaluation, not a copy of TensorFlow Data Validation.
 
 Scope, data-security rules, evaluation-leakage rules and acceptance criteria: [`SPEC.md`](SPEC.md).
 
-Project page with a summary of the findings: <a href="https://slastrzelec.github.io/portfolio/ml-data-guard/" target="_blank" rel="noopener noreferrer">slastrzelec.github.io/portfolio/ml-data-guard</a>
+Project page with an interactive explorer of every result below: <a href="https://slastrzelec.github.io/portfolio/ml-data-guard/" target="_blank" rel="noopener noreferrer">slastrzelec.github.io/portfolio/ml-data-guard</a>.
+The explorer is one static file, [`explorer/index.html`](explorer/index.html), built from the result files by
+`python tools/build_explorer.py`; it opens from disk and loads nothing from the network.
 
 ## Results
 
@@ -290,6 +292,11 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
   hidden assumption fails and the returned row reproduces the failure on its own.
 - **Command line:** exit codes 0 / 1 / 2, the shape of the JSON output, and the walk-through in
   `examples/README.md`, which is executed command by command.
+- **Results explorer:** every cell of every published result file appears in the page with the same
+  rate and interval; a cell that was not scored stays empty instead of becoming zero; the tracked
+  page is exactly what the build produces, so a stale page fails the suite; the page references no
+  external resource, uses no browser storage and writes no markup from data; feature names,
+  thresholds and file paths are left out.
 - **Failure handling:** unnormalised, negative, non-finite, empty or misaligned input, unknown
   config keys and damaged data files raise an error instead of returning a plausible number.
 - **Security and hygiene:** no socket can be opened during tests; no data, secret or large file is
@@ -298,7 +305,7 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
 **How the tests were checked:** `python tools/mutation_check.py` re-introduces known bugs one at a
 time (for example `L-inf` returning a sum, an injector that ignores the seed, thresholds calibrated on
 the evaluation split, a silenced anomaly type, category values printed by default, exit code 0
-despite anomalies) and requires the suite to fail for each of the 90 mutants. The list is hand-written and targeted; it
+despite anomalies) and requires the suite to fail for each of the 95 mutants. The list is hand-written and targeted; it
 is not exhaustive mutation testing.
 
 **Not covered**
@@ -314,6 +321,9 @@ is not exhaustive mutation testing.
 - Large inputs: validation and skew comparison loop over cells in Python and were only run on
   tables of up to 20,000 rows.
 - The example GitHub Actions workflow in `examples/` is not executed anywhere.
+- How the explorer renders: there is no JavaScript test in CI. It was opened once in headless
+  Chromium at two widths, stepping through all 559 combinations without a script error or a
+  network request; other browsers were not checked.
 - Numerical behaviour on vectors with more than a few dozen categories or with probabilities
   below `1e-12`.
 

@@ -1,6 +1,6 @@
 # SPEC: ml-data-guard
 
-Status: **APPROVED v0.6 (2026-10-10).** All three phases complete (audits in section 13). Scope changes go into this file first.
+Status: **APPROVED v0.7 (2026-10-10).** Phases 1 to 3 complete (audits in section 13); phase 4 (presentation and distribution) designed in section 16. Scope changes go into this file first.
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
@@ -288,6 +288,17 @@ schema rejects 19% of clean News and 40% of clean Beijing batches; no check in t
 `time_travel`; the News model (accuracy 0.675) is too weak to support conclusions about model impact;
 the comparison with existing tools does not exist.
 
+### Phase 4a: results explorer (2026-10-10)
+
+| Acceptance criterion (section 16.5) | State | Evidence |
+|---|---|---|
+| 1. The build reproduces `explorer/index.html` from the tracked result files | Met | `tests/test_explorer.py::test_the_tracked_page_is_what_the_build_produces`. |
+| 2. Opens from the file system, no network request | Met in one engine | Opened from disk in headless Chromium: 559 of 559 combinations rendered, no script error, the only request was the file itself. A test forbids external references and storage calls in the page. Firefox and Safari not checked. |
+| 3. Portfolio page shows the explorer above the tables; README links to it | Met | The copy in the portfolio repository is made by hand; nothing checks that it matches this repository. |
+| 4. PyPI package and GitHub Action (4b) | Open | Not started. |
+
+Five mutants added for the explorer build (95 in total), all killed locally.
+
 ## 14. Phase 2 design: the library layer
 
 Phase 1 answered "which check finds what". Phase 2 turns the checks into something a pipeline can call. No
@@ -452,3 +463,65 @@ seeds and faults as every other rule. Running external tools would add heavy, fa
 and compare default configurations of tools that are meant to be tuned by hand, which is a weaker
 comparison than it looks. The decision can be reopened as an optional extra outside the core CI.
 
+## 16. Phase 4 design: results explorer and distribution
+
+Phases 1 to 3 produced numbers that are only readable as long tables. Phase 4 changes how the results are
+shown and how the tool is installed. It adds no detector, no fault and no new measurement.
+
+Change of scope: section 2 excludes a web platform. That non-goal stays (no server, no upload, no
+dashboard for a user's own data). The explorer below is a static page over the published
+result files and is the only exception.
+
+### 16.1 Results explorer (4a)
+
+- One self-contained HTML file, `explorer/index.html`, built by `tools/build_explorer.py` from
+  `explorer/template.html` and the files in `benchmarks/results/`. The build is deterministic: the same
+  inputs give the same bytes.
+- Content: for a chosen run, batch size, fault and severity, the share of faulty batches each rule flags
+  next to the share of clean data the same rule flags, both with the stored 95% intervals; recall of every
+  rule across all severities of the fault; the change in model accuracy with its interval.
+- The clean rate shown next to a fault matches the level the fault is scored at: per feature for faults of
+  one feature, per batch for faults of whole rows.
+- The page computes no statistic. Every rate and interval is copied from the result files, rounded to four
+  decimals. Cells that the benchmark did not score (a distance on a dropped column) are shown as "n/a",
+  never as zero.
+- The page is copied unchanged into the portfolio page and embedded there.
+
+### 16.2 Security and leakage rules for the explorer
+
+1. The page holds aggregate results only: rates, counts and intervals per run, fault and rule. No rows,
+   no cell values, no per-feature breakdown, no file paths of the machine that ran the benchmark.
+2. No network access at view time: no external script, style, font or image, no `fetch`, no analytics.
+3. No cookies and no browser storage; no input from the viewer other than the four selectors.
+4. Text from the data is written to the page as text, never as markup.
+5. Nothing is selected by looking at results: all runs, batch sizes, faults, severities and rules of the
+   result files are included, including the negative control and the cells where every rule fails.
+
+### 16.3 Distribution (4b)
+
+- Package on PyPI under the name `ml-data-guard` (import name `mlguard`), built from a tagged commit by a
+  GitHub Actions workflow with trusted publishing (no API token stored in the repository).
+- A composite GitHub Action in the repository root (`action.yml`) that installs a pinned version of the
+  package and runs `mlguard validate` on a file, failing the job on exit code 1 or 2.
+- The example workflow in `examples/` is replaced by one that uses the action and is executed in CI on the
+  example data, so that it is no longer untested.
+- Creating the PyPI project and the trusted-publisher link is done by the repository owner; no credential
+  is handled by the build scripts.
+
+### 16.4 Tests added in phase 4
+
+- The explorer data contains every cell of every published result file with the same rate and interval
+  (after rounding), and nothing from `by_feature`, `thresholds` or `data_path`.
+- Rebuilding the explorer gives the tracked file byte for byte, so a stale page fails the suite.
+- The built page contains no `http://` or `https://` reference to a resource, no `fetch`, `XMLHttpRequest`,
+  `localStorage`, `sessionStorage`, `document.cookie`, `innerHTML` or `eval`.
+- Not tested: the rendering itself. There is no JavaScript test runner in CI; the page was checked by eye
+  in one browser engine.
+
+### 16.5 Acceptance criteria for phase 4
+
+1. `python tools/build_explorer.py` reproduces `explorer/index.html` from the tracked result files.
+2. The explorer opens from the file system without a server and makes no network request.
+3. The portfolio page shows the explorer above the tables; the README links to it.
+4. (4b) `pip install ml-data-guard` from PyPI gives a working `mlguard` command; the action runs in CI of
+   this repository on the example data and fails on the broken example batch.

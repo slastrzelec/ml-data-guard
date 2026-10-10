@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ml-data-guard: results explorer</title>
+<style>
+:root {
+  --ink: #1f2428; --muted: #5d6770; --line: #dfe3e7; --soft: #f5f6f7; --paper: #ffffff;
+  --hit: #d84315; --hit-soft: rgba(216, 67, 21, 0.28); --clean: #455a64; --clean-soft: rgba(69, 90, 100, 0.3);
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  margin: 0; padding: 16px; background: var(--paper); color: var(--ink);
+  font: 15px/1.5 Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+}
+h1 { font-size: 1.25rem; margin: 0 0 4px; }
+h2 { font-size: 1rem; margin: 28px 0 4px; }
+p { margin: 0 0 10px; }
+.muted { color: var(--muted); font-size: 0.87rem; }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
+button {
+  font: inherit; font-size: 0.87rem; color: var(--ink); background: var(--soft);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer;
+}
+button:hover { border-color: var(--hit); }
+button[aria-pressed="true"] { background: var(--hit); border-color: var(--hit); color: #fff; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--hit); outline-offset: 2px; }
+.controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+label { display: block; font-size: 0.8rem; color: var(--muted); }
+select {
+  display: block; width: 100%; margin-top: 3px; padding: 7px 8px; font: inherit; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line); border-radius: 6px;
+}
+.facts { margin: 16px 0 0; padding: 10px 12px; background: var(--soft); border-radius: 6px; }
+.facts strong { font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 8px 0 6px; font-size: 0.87rem; }
+.key { display: inline-flex; align-items: center; gap: 7px; }
+.mark { display: inline-block; width: 12px; height: 12px; }
+.mark.hit { background: var(--hit); border-radius: 50%; }
+.mark.clean { background: var(--paper); border: 2px solid var(--clean); transform: rotate(45deg) scale(0.85); }
+.row, .axis {
+  display: grid; grid-template-columns: 150px minmax(0, 1fr) 132px 132px; gap: 0 12px;
+  align-items: center; min-height: 30px;
+}
+.group { margin: 14px 0 2px; font-size: 0.8rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.axis { min-height: 20px; font-size: 0.75rem; color: var(--muted); }
+.ticks { position: relative; height: 16px; }
+.ticks span { position: absolute; transform: translateX(-50%); }
+.ticks span:first-child { transform: none; }
+.ticks span:last-child { transform: translateX(-100%); }
+.head { text-align: right; }
+.name { font-weight: 500; }
+.track {
+  position: relative; height: 24px; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  background: linear-gradient(to right, transparent calc(25% - 1px), var(--line) calc(25% - 1px), var(--line) 25%, transparent 25%,
+    transparent calc(50% - 1px), var(--line) calc(50% - 1px), var(--line) 50%, transparent 50%,
+    transparent calc(75% - 1px), var(--line) calc(75% - 1px), var(--line) 75%, transparent 75%);
+}
+.track > span { position: absolute; top: 50%; }
+.band { height: 8px; margin-top: -4px; border-radius: 4px; min-width: 2px; }
+.band.hit { background: var(--hit-soft); }
+.band.clean { background: var(--clean-soft); }
+.gap { height: 2px; margin-top: -1px; background: var(--line); }
+.dot { width: 12px; height: 12px; margin: -6px 0 0 -6px; }
+.dot.hit { background: var(--hit); border-radius: 50%; }
+.dot.clean { background: var(--paper); border: 2px solid var(--clean); transform: rotate(45deg) scale(0.85); }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.num small { color: var(--muted); font-size: 0.75rem; }
+.num.hit { color: var(--hit); font-weight: 600; }
+.num.hit small { font-weight: 400; }
+.none { color: var(--muted); font-style: italic; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 0.87rem; }
+th, td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-weight: 600; vertical-align: bottom; white-space: normal; padding: 5px 3px; }
+thead th:first-child { padding-left: 8px; }
+thead button { width: 100%; padding: 4px 5px; line-height: 1.25; }
+td.sel, th.sel { box-shadow: inset 2px 0 0 var(--hit), inset -2px 0 0 var(--hit); }
+tr.split td { border-top: 2px solid var(--line); }
+tfoot td { font-weight: 500; }
+@media (max-width: 720px) {
+  .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row { grid-template-columns: minmax(0, 1fr) auto auto; padding: 4px 0; }
+  .row .track { grid-column: 1 / -1; grid-row: 2; }
+  .axis { grid-template-columns: minmax(0, 1fr); }
+  .axis .head, .axis .pad { display: none; }
+  .num small { display: none; }
+}
+</style>
+</head>
+<body>
+<h1>Which check finds which data fault?</h1>
+<p class="muted">Pick a dataset, a batch size, a fault and its dose. Every number comes from the published
+benchmark files; nothing is computed on this page.</p>
+
+<div class="presets" id="presets" role="group" aria-label="Examples"></div>
+
+<div class="controls">
+  <label>Dataset<select id="run"></select></label>
+  <label>Rows per batch<select id="size"></select></label>
+  <label>Injected fault<select id="fault"></select></label>
+  <label>Dose<select id="severity"></select></label>
+</div>
+
+<p class="facts" id="facts"></p>
+
+<h2>Found in faulty batches against false alarms on clean data</h2>
+<p class="muted" id="reading"></p>
+<div class="legend">
+  <span class="key"><span class="mark hit"></span>share of faulty batches flagged (recall)</span>
+  <span class="key"><span class="mark clean"></span>share of clean data flagged (false alarms)</span>
+  <span class="key muted">bands: 95% intervals</span>
+</div>
+<div id="chart"></div>
+
+<h2>The same fault at every dose</h2>
+<p class="muted">Share of faulty batches flagged. Select a column to show it above.</p>
+<div class="scroll"><table id="doses"></table></div>
+
+<p class="muted" id="source" style="margin-top:20px"></p>
+
+<script id="data" type="application/json">/*EXPLORER_DATA*/</script>
+<script>
+(function () {
+  "use strict";
+  var DATA = JSON.parse(document.getElementById("data").textContent);
+  var GROUPS = [
+    ["calibrated", "Distances with a threshold calibrated on clean data"],
+    ["textbook", "Fixed thresholds from tutorials"],
+    ["schema", "Schema check"]
+  ];
+  var PRESETS = [
+    ["A tiny dose: the schema finds it, distances do not", "covertype", 10000, "unit_change", 0.001],
+    ["A legal shift: distances find it, the schema does not", "covertype", 10000, "mean_shift", 0.05],
+    ["Seasonal data: a fault in every fifth row goes unseen", "beijing_static", 1000, "unit_change", 0.2],
+    ["A feature from the future passes every check", "synthetic_series", 10000, "time_travel", 10],
+    ["Nothing is wrong, and fixed thresholds still fire", "news", 1000, "tiny_noise", 0.0001]
+  ];
+  var state = { run: "covertype", size: 10000, fault: "unit_change", severity: 0.01 };
+
+  function node(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (text !== undefined) { e.textContent = text; }
+    return e;
+  }
+  function clear(e) { while (e.firstChild) { e.removeChild(e.firstChild); } }
+  function byId(id) { return document.getElementById(id); }
+  function trim(x, digits) { return String(Number(x.toFixed(digits))); }
+  function pct(x) { return trim(x * 100, 1) + "%"; }
+  function interval(cell) { return "[" + trim(cell[1] * 100, 1) + ", " + trim(cell[2] * 100, 1) + "]"; }
+  function signed(x) { return (x < 0 ? "-" : "+") + Math.abs(x * 100).toFixed(2); }
+  function count(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+
+  function dose(entry) {
+    var s = entry.severity;
+    if (entry.unit === "fraction_of_rows") { return trim(s * 100, 3) + "% of rows"; }
+    if (entry.unit === "sigma") { return s + " standard deviations"; }
+    if (entry.unit === "relative_scale") { return "spread +" + trim(s * 100, 3) + "%"; }
+    if (entry.unit === "lead_steps") { return s + (s === 1 ? " step ahead" : " steps ahead"); }
+    return "whole column";
+  }
+
+  function run() { return DATA.runs.filter(function (r) { return r.id === state.run; })[0]; }
+  function size() { return run().sizes.filter(function (s) { return s.batch_size === state.size; })[0]; }
+  function doses() { return size().faults.filter(function (f) { return f.fault === state.fault; }); }
+  function entry() { return doses().filter(function (f) { return f.severity === state.severity; })[0]; }
+
+  function repair() {
+    var r = run() || DATA.runs[0];
+    state.run = r.id;
+    if (!size()) { state.size = r.sizes[r.sizes.length - 1].batch_size; }
+    if (!doses().length) { state.fault = size().faults[0].fault; }
+    if (!entry()) { var d = doses(); state.severity = d[Math.floor((d.length - 1) / 2)].severity; }
+  }
+
+  function options(select, items, current) {
+    clear(select);
+    items.forEach(function (item) {
+      var o = node("option", null, item[1]);
+      o.value = String(item[0]);
+      o.selected = item[0] === current;
+      select.appendChild(o);
+    });
+  }
+
+  function controls() {
+    options(byId("run"), DATA.runs.map(function (r) {
+      return [r.id, r.label + " (" + count(r.rows) + " rows)"];
+    }), state.run);
+    options(byId("size"), run().sizes.map(function (s) {
+      return [s.batch_size, count(s.batch_size)];
+    }), state.size);
+    var seen = {};
+    var faults = [];
+    size().faults.forEach(function (f) {
+      if (!seen[f.fault]) { seen[f.fault] = true; faults.push([f.fault, DATA.faults[f.fault]]); }
+    });
+    options(byId("fault"), faults, state.fault);
+    options(byId("severity"), doses().map(function (f) { return [f.severity, dose(f)]; }), state.severity);
+    Array.prototype.forEach.call(byId("presets").children, function (b, i) {
+      var p = PRESETS[i];
+      var on = p[1] === state.run && p[2] === state.size && p[3] === state.fault && p[4] === state.severity;
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
+  function facts() {
+    var e = entry(), r = run(), s = size(), box = byId("facts");
+    clear(box);
+    box.appendChild(node("strong", null, DATA.faults[e.fault] + ", " + dose(e) + ". "));
+    var text = e.n + " faulty batches of " + count(s.batch_size) + " rows, compared with " +
+      count(s.n_clean) + " clean batches. ";
+    if (e.control) {
+      text += "This is the negative control: nothing here should be found, so every flag is a false alarm. ";
+    }
+    if (e.impact && r.model) {
+      text += "Model accuracy loss when the same fault hits held-out data: " + signed(e.impact[0]) +
+        " points [" + signed(e.impact[1]) + ", " + signed(e.impact[2]) + "] (clean accuracy " +
+        r.model.clean_accuracy.toFixed(3) + ", batches of " + count(r.model.batch_size) + " rows).";
+      if (e.impact[2] < 0) { text += " A negative loss means the leak makes the model look better."; }
+    }
+    box.appendChild(document.createTextNode(text));
+    byId("reading").textContent = "A rule is useful when the filled dot is far to the right of the diamond. " +
+      (e.level === "batch"
+        ? "This fault changes whole rows, so both rates are per batch: any feature may raise the alarm."
+        : "Both rates are per feature: the faulted feature in faulty batches, every feature in clean ones.");
+    byId("source").textContent = "Source: benchmarks/results/" + r.id + ".json at commit " + r.commit +
+      ". Reference: " + r.reference + ". Calibrated thresholds target " + pct(r.target_fpr) +
+      " false alarms per feature.";
+  }
+
+  function place(e, left, width) {
+    e.style.left = (left * 100) + "%";
+    if (width !== undefined) { e.style.width = (width * 100) + "%"; }
+    return e;
+  }
+
+  function axis() {
+    var a = node("div", "axis");
+    a.appendChild(node("span", "pad"));
+    var ticks = node("div", "ticks");
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) { ticks.appendChild(place(node("span", null, pct(t)), t)); });
+    a.appendChild(ticks);
+    a.appendChild(node("span", "head", "found"));
+    a.appendChild(node("span", "head", "false alarms"));
+    return a;
+  }
+
+  function number(cls, cell) {
+    var n = node("div", "num " + cls);
+    if (!cell) { n.textContent = "n/a"; n.className = "num none"; return n; }
+    n.appendChild(document.createTextNode(pct(cell[0]) + " "));
+    n.appendChild(node("small", null, interval(cell)));
+    return n;
+  }
+
+  function chart() {
+    var e = entry(), clean = size().clean[e.level], box = byId("chart");
+    clear(box);
+    box.appendChild(axis());
+    GROUPS.forEach(function (group) {
+      box.appendChild(node("div", "group", group[1]));
+      DATA.rules.filter(function (rule) { return rule.group === group[0]; }).forEach(function (rule) {
+        var hit = e.rules[rule.id], base = clean[rule.id];
+        var row = node("div", "row");
+        row.appendChild(node("div", "name", rule.label));
+        var track = node("div", "track");
+        if (hit && base) {
+          track.appendChild(place(node("span", "gap"), Math.min(hit[0], base[0]), Math.abs(hit[0] - base[0])));
+        }
+        if (base) {
+          track.appendChild(place(node("span", "band clean"), base[1], base[2] - base[1]));
+          track.appendChild(place(node("span", "dot clean"), base[0]));
+        }
+        if (hit) {
+          track.appendChild(place(node("span", "band hit"), hit[1], hit[2] - hit[1]));
+          track.appendChild(place(node("span", "dot hit"), hit[0]));
+        } else {
+          track.appendChild(place(node("span", "none", "not scored: the column is gone"), 0.02)).style.marginTop = "-0.75em";
+        }
+        row.appendChild(track);
+        row.appendChild(number("hit", hit));
+        row.appendChild(number("clean", base));
+        box.appendChild(row);
+      });
+    });
+  }
+
+  function shade(cell, rate) {
+    cell.style.background = "rgba(216, 67, 21, " + (rate * 0.85).toFixed(3) + ")";
+    if (rate > 0.6) { cell.style.color = "#fff"; }
+  }
+
+  function table() {
+    var list = doses(), clean = size().clean[list[0].level], t = byId("doses");
+    clear(t);
+    var head = node("tr");
+    head.appendChild(node("th", null, "Rule"));
+    head.appendChild(node("th", null, "Clean data"));
+    list.forEach(function (f) {
+      var th = node("th", f.severity === state.severity ? "sel" : null);
+      var b = node("button", null, dose(f));
+      b.type = "button";
+      b.setAttribute("aria-pressed", f.severity === state.severity ? "true" : "false");
+      b.addEventListener("click", function () { state.severity = f.severity; render(); });
+      th.appendChild(b);
+      head.appendChild(th);
+    });
+    var thead = node("thead");
+    thead.appendChild(head);
+    t.appendChild(thead);
+    var body = node("tbody"), previous = null;
+    DATA.rules.forEach(function (rule) {
+      var tr = node("tr", previous && previous !== rule.group ? "split" : null);
+      previous = rule.group;
+      tr.appendChild(node("td", null, rule.label));
+      tr.appendChild(node("td", null, clean[rule.id] ? pct(clean[rule.id][0]) : "n/a"));
+      list.forEach(function (f) {
+        var cell = f.rules[rule.id];
+        var td = node("td", f.severity === state.severity ? "sel" : null, cell ? pct(cell[0]) : "n/a");
+        if (cell) { shade(td, cell[0]); } else { td.className += " none"; }
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    t.appendChild(body);
+    if (list.some(function (f) { return f.impact; })) {
+      var foot = node("tfoot"), tr = node("tr", "split");
+      tr.appendChild(node("td", null, "Model accuracy loss (points)"));
+      tr.appendChild(node("td", null, ""));
+      list.forEach(function (f) {
+        tr.appendChild(node("td", f.severity === state.severity ? "sel" : null, f.impact ? signed(f.impact[0]) : "n/a"));
+      });
+      foot.appendChild(tr);
+      t.appendChild(foot);
+    }
+  }
+
+  function fit() {
+    try {
+      if (window.frameElement) {
+        window.frameElement.style.height = (document.documentElement.scrollHeight + 8) + "px";
+      }
+    } catch (error) { /* embedded from another origin: the frame keeps its height */ }
+  }
+
+  function render() {
+    repair();
+    controls();
+    facts();
+    chart();
+    table();
+    fit();
+  }
+
+  PRESETS.forEach(function (p) {
+    var b = node("button", null, p[0]);
+    b.type = "button";
+    b.addEventListener("click", function () {
+      state = { run: p[1], size: p[2], fault: p[3], severity: p[4] };
+      render();
+    });
+    byId("presets").appendChild(b);
+  });
+  byId("run").addEventListener("change", function (e) { state.run = e.target.value; render(); });
+  byId("size").addEventListener("change", function (e) { state.size = Number(e.target.value); render(); });
+  byId("fault").addEventListener("change", function (e) {
+    state.fault = e.target.value;
+    state.severity = null;
+    render();
+  });
+  byId("severity").addEventListener("change", function (e) { state.severity = Number(e.target.value); render(); });
+  window.addEventListener("resize", fit);
+  render();
+})();
+</script>
+</body>
+</html>

@@ -22,7 +22,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-COPIED = ("src", "tests", "benchmarks", "examples", "pyproject.toml", ".gitignore")
+COPIED = (
+    "src", "tests", "tools", "explorer", "benchmarks", "examples", "pyproject.toml", ".gitignore",
+)  # fmt: skip
+EXPLORER = "tools/build_explorer.py"
+EXPLORER_TESTS = ("tests/test_explorer.py",)
 DISTANCES = "src/mlguard/distances.py"
 INJECT = "src/mlguard/inject.py"
 DISTANCE_TESTS = ("tests/test_distances.py", "tests/test_binning.py")
@@ -698,6 +702,41 @@ MUTANTS = [
         'frame = frame[frame["pm25"].notna()].sort_values(',
         "frame = frame.sort_values(",
         DATASET_TESTS,
+    ),
+    Mutant(
+        "the explorer shows a cell that was not scored as zero",
+        EXPLORER,
+        "    if cell is None:\n        return None\n",
+        "    if cell is None:\n        return [0.0, 0.0, 0.0]\n",
+        EXPLORER_TESTS,
+    ),
+    Mutant(
+        "the explorer shows the upper bound of an interval as the rate",
+        EXPLORER,
+        'for key in ("rate", "low", "high")]',
+        'for key in ("high", "low", "high")]',
+        EXPLORER_TESTS,
+    ),
+    Mutant(
+        "the explorer shows per-batch clean rates as per-feature ones",
+        EXPLORER,
+        '(("feature", "per_feature"), ("batch", "per_batch"))',
+        '(("feature", "per_batch"), ("batch", "per_batch"))',
+        EXPLORER_TESTS,
+    ),
+    Mutant(
+        "the per-feature breakdown is copied into the explorer",
+        EXPLORER,
+        '"control": bool(entry["negative_control"]),',
+        '"control": bool(entry["negative_control"]), "detail": entry["by_feature"],',
+        EXPLORER_TESTS,
+    ),
+    Mutant(
+        "the explorer data can close its own script tag",
+        EXPLORER,
+        'payload.replace("</", "<\\\\/")',
+        "payload",
+        EXPLORER_TESTS,
     ),
 ]
 
