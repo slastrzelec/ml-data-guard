@@ -39,6 +39,9 @@ dev = [
     "pip-audit>=2.7,<3",
 ]
 
+[project.scripts]
+mlguard = "mlguard.cli:main"
+
 [project.urls]
 Repository = "https://github.com/slastrzelec/ml-data-guard"
 

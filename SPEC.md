@@ -1,6 +1,6 @@
 # SPEC: ml-data-guard
 
-Status: **APPROVED v0.3 (2026-10-10).** Phase 1 complete (audit in section 13). Scope changes go into this file first.
+Status: **APPROVED v0.4 (2026-10-10).** Phase 1 complete (audit in section 13); phase 2 design in section 14. Scope changes go into this file first.
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
@@ -65,7 +65,7 @@ independent implementation and evaluation, not a copy of TFDV.
 | Model unit test | Synthetic examples generated from the schema (seeded fuzzing) are fed to the user's training/prediction function to expose hidden assumptions (e.g. `log(x)` with `x <= 0`). |
 | Fault injectors | Pure functions `(batch, feature, severity, rng) -> faulty batch` on pandas DataFrames; see section 5. |
 | Benchmark runner | Runs detectors x faults x severities x seeds, writes JSON + Markdown report. |
-| CLI | `mlguard infer`, `mlguard validate`, `mlguard compare`, `mlguard bench`; non-zero exit code on anomalies (CI step). |
+| CLI | `mlguard infer`, `mlguard validate`, `mlguard compare`, `mlguard skew`, `mlguard bench`; non-zero exit code on anomalies (CI step). |
 
 ## 5. Fault catalogue (v1)
 
@@ -181,7 +181,8 @@ distributed scale.
 ```
 ml-data-guard/
   src/mlguard/        distances.py  inject.py  detectors.py  datasets.py  bench.py
-                      schema.py  validate.py  compare.py  cli.py   (phase 2)
+                      schema.py  validate.py  compare.py  modeltest.py  cli.py
+  examples/           runnable walk-through and a CI workflow to copy
   tests/
   tools/              mutation_check.py, data download script
   benchmarks/         configs, results (small, tracked) and generated report
@@ -251,3 +252,117 @@ injector, integer-preserving `mean_shift` / `variance_change`, Wilson intervals 
 Known weaknesses carried forward: achieved false-positive rate 0.5 - 1.9% against a 1% target; recall on
 tiny shifts is inflated by lattice-valued features; 100 faulty batches per cell give wide intervals; the
 feature-skew comparison that could detect `time_travel` does not exist yet.
+
+### Phase 2 (2026-10-10)
+
+| Acceptance criterion (section 14.7) | State | Evidence |
+|---|---|---|
+| 1. `infer`, `validate`, `compare`, `skew` work on the example data; the walk-through runs as written | Met | `tests/test_cli.py::test_the_walkthrough_runs_as_written` executes every command of `examples/README.md` and checks its exit code. Checked on Linux; on Windows only through the user's local test run. |
+| 2. Validator catches the schema-violating injectors; what it misses is listed | Met | `tests/test_validate.py`: six faults caught, six asserted to be missed. |
+| 3. Skew flags `time_travel` where the distribution detectors do not | Met | `tests/test_compare.py::test_skew_finds_time_travel_that_the_distances_miss`. |
+| 4. No cell values by default; `domains=none` leaves no value in the schema | Met | Tests in `test_schema.py`, `test_validate.py`, `test_cli.py`. |
+| 5. CI green on 3.11 and 3.12; mutation checks cover the new modules | To be confirmed by CI | 25 new mutants (82 in total), all killed locally in partial runs. |
+
+Not delivered or weaker than the design: Parquet input is untested (needs `pyarrow`); cell-wise Python loops
+limit validation and skew to moderate table sizes; the phase 1 benchmark was not extended with the skew
+check (by design, section 14.3).
+
+## 14. Phase 2 design: the library layer
+
+Phase 1 answered "which check finds what". Phase 2 turns the checks into something a pipeline can call. No
+new statistics are invented here; the comparison step reuses the detectors of the benchmark.
+
+### 14.1 Schema (`schema.py`)
+
+A schema is a versioned JSON file with one entry per feature:
+
+| Field | Meaning | How it is inferred from reference data |
+|---|---|---|
+| `kind` | `numeric` or `categorical` | From the column type only (numbers, not booleans, are numeric). An integer-coded category has to be declared by the caller; the tool does not guess from the number of distinct values. |
+| `dtype` | `int`, `float` or `string` | From the column type. |
+| `min_presence` | Smallest allowed share of non-missing values | 1.0 if nothing is missing; otherwise twice the missing share of the reference plus one percentage point is tolerated, because later batches are smaller than the reference and scatter more. |
+| `minimum`, `maximum` | Numeric range | Observed range widened by 10% of its width on each side, never across zero (`padded`, default), exactly as observed (`observed`), or not at all (`none`). Heavy-tailed features will still exceed an inferred range sooner or later; the anomaly then suggests the new range. |
+| `domain` | Allowed categorical values | All observed values if there are at most 100 (configurable); none for free-text features. |
+| `max_out_of_range_fraction`, `max_unexpected_fraction` | Tolerated share of violating rows | 0; raised by hand for features with known junk. |
+| `stage` | `active` or `deprecated` | `active`. A deprecated feature may be absent and is not validated. |
+
+Columns that are not features (keys, targets, timestamps) are listed once under `ignored` and never validated.
+
+Inference is deliberately loose ("without overfitting"): a schema that rejects the next clean batch is worse
+than no schema. Every anomaly therefore carries a suggested schema change, and tightening is a human decision.
+
+Data security: the file holds statistics and bounded domains, never rows. Domains can be stored as
+`plain` values, as `hashed` values (SHA-256, truncated) or not at all (`none`). Hashing keeps values out of
+the file and out of reports; it does not protect low-entropy values against a dictionary attack, so `none` is
+the setting for personal data. Reports never print cell values unless the caller asks for it.
+
+### 14.2 Single-batch validator (`validate.py`)
+
+`validate_batch(batch, schema)` returns a list of anomalies; an empty list means the batch conforms.
+
+| Anomaly | Raised when | Level |
+|---|---|---|
+| `EMPTY_BATCH` | the batch has no rows | error |
+| `MISSING_FEATURE` | an active feature has no column | error |
+| `UNEXPECTED_FEATURE` | a column is not in the schema | warning |
+| `TYPE_MISMATCH` | a numeric feature holds values that are not numbers (or non-integers in an `int` feature) | error |
+| `LOW_PRESENCE` | share of non-missing values is below `min_presence` | error |
+| `OUT_OF_RANGE` | share of values outside `[minimum, maximum]` exceeds the tolerance | error |
+| `UNEXPECTED_VALUES` | share of values outside the domain exceeds the tolerance | error |
+
+Each anomaly has: feature, type, level, a one-sentence description, the observed statistic, the threshold it
+was compared with, and a suggested schema change. Text in a numeric column is a type mismatch and is not
+counted again as missing or out of range.
+
+### 14.3 Comparison of two batches (`compare.py`)
+
+- **Distribution shift:** `compare_batches(reference, batch, schema, detector=...)` scores every active feature
+  with one detector of phase 1 and raises `DISTRIBUTION_SHIFT` above a threshold. The threshold is either
+  given by the caller or calibrated: the reference is split in two halves with a seed, statistics are fitted
+  on the first half and the threshold is the `1 - target_fpr` quantile of the scores of clean batches (of the
+  size of the batch under test) drawn from the second half. The batch under test never influences the
+  threshold. The benchmark showed that a fixed threshold is only right for one batch size, which is why
+  calibration is the default.
+- **Feature skew:** `feature_skew(training, serving, key=...)` joins the two tables on a key and compares
+  the same feature of the same row. Result per feature: joined rows, mismatching rows, share; plus keys
+  present on one side only. Floats are compared with a tolerance, everything else exactly, missing equals
+  missing. A share above the tolerance (default 0) raises `FEATURE_SKEW`. This is the check for
+  `time_travel` and for any training/serving skew, and it needs what distribution checks do not: the two
+  versions of the same rows. It is tested on the `time_travel` injector; it is not added to the phase 1
+  benchmark, where every per-row change would trivially be found.
+
+### 14.4 Model unit test (`modeltest.py`)
+
+`generate_examples(schema, n_rows, seed)` draws rows that the schema allows, including its edges: range
+minimum and maximum, zero when allowed, every domain value, and missing values when `min_presence < 1`.
+`run_model_test(function, schema, ...)` feeds them to a user function (training step or prediction) and fails
+when the function raises, produces NaN or infinity (NumPy floating-point errors are raised, not ignored), or
+returns the wrong number of predictions. On failure it searches for a single row that reproduces the problem
+and reports it; the row is synthetic, so it can be shown. The finding is "your code assumes more than your
+schema promises": either the code or the schema has to change.
+
+### 14.5 CLI (`cli.py`) and CI step
+
+`mlguard infer | validate | compare | skew | bench`. Input: CSV (Parquet when `pyarrow` is installed).
+Output: text for people or `--format json` for machines. Exit codes: 0 no anomaly, 1 at least one error-level
+anomaly (warnings too with `--strict`), 2 wrong usage or unreadable input. `examples/` holds a runnable
+walk-through on synthetic data and a GitHub Actions workflow to copy.
+
+### 14.6 Tests added in phase 2
+
+| Area | Verified |
+|---|---|
+| Schema | inferred schema accepts its own reference; the presence margin tolerates fresh samples; JSON round trip; domain bound; hashed and omitted domains leave no value in the file; invalid files are rejected |
+| Validator | every anomaly type is raised by a minimal example and not on clean data; which injected faults the validator catches |
+| Comparison | calibration never sees the batch under test; clean batches rarely alarm, shifted ones do; skew finds `time_travel` that the distances miss |
+| Model unit test | generated rows satisfy the schema and are seeded; a function with a hidden assumption fails with a reproducing row; a robust function passes |
+| CLI | exit codes 0 / 1 / 2, JSON output shape, no cell values in the output by default |
+
+### 14.7 Acceptance criteria for phase 2
+
+1. `mlguard infer`, `validate`, `compare`, `skew` work on the example data from a clean install; the walk-through in `examples/` runs as written (tested).
+2. The validator catches `dropped_feature`, `type_change`, `new_category`, and range and presence violations of the injectors; this is tested, and what it does not catch is listed.
+3. The skew comparison flags `time_travel` in a test where the distribution detectors do not.
+4. No command prints cell values by default; a schema with `domains=none` contains no value from the data (tested).
+5. CI stays green on Python 3.11 and 3.12; mutation checks cover the new modules.
+

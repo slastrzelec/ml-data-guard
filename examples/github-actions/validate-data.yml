@@ -1,0 +1,24 @@
+# Copy to .github/workflows/ in a repository that stores a schema and receives data batches.
+# The job fails when a batch violates the schema or drifts away from the reference data.
+name: Validate data
+
+on:
+  pull_request:
+    paths: ["data/**", "schema.json"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install "ml-data-guard @ git+https://github.com/slastrzelec/ml-data-guard"
+      - name: Schema check
+        run: mlguard validate data/batch.csv --schema schema.json
+      - name: Distribution shift against the reference
+        run: mlguard compare data/reference.csv data/batch.csv --schema schema.json

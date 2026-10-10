@@ -151,6 +151,28 @@ def score_counts(
     return scores
 
 
+def encode_column(reference: FeatureReference, values: ArrayLike) -> np.ndarray:
+    """Per-row form of a column that the detectors need: strict numbers, or category codes.
+
+    Encoding uses the frozen reference only (its vocabulary), so a whole column can be encoded once
+    and many batches of its rows scored without a Python loop per batch.
+    """
+    if reference.kind == "numeric":
+        return strict_numeric(values)
+    return category_codes(values, reference.vocabulary)
+
+
+def score_encoded(
+    reference: FeatureReference, encoded: np.ndarray, *, smoothing: float = 1e-4
+) -> dict[str, float]:
+    """Detector scores of one batch given as rows of ``encode_column``."""
+    if reference.kind == "numeric":
+        counts = bin_counts(encoded, reference.edges)
+        return score_counts(reference, counts, encoded[~np.isnan(encoded)], smoothing=smoothing)
+    counts = np.bincount(encoded, minlength=reference.counts.size).astype(np.float64)
+    return score_counts(reference, counts, smoothing=smoothing)
+
+
 def score_feature(
     reference: FeatureReference, values: ArrayLike, *, smoothing: float = 1e-4
 ) -> dict[str, float]:
@@ -160,12 +182,7 @@ def score_feature(
     ``chi2_pvalue`` and, for numeric features, ``ks`` and ``ks_pvalue`` (NaN when the batch has
     no numeric value left, because KS cannot see missing values).
     """
-    if reference.kind == "numeric":
-        numbers = strict_numeric(values)
-        counts = bin_counts(numbers, reference.edges)
-        return score_counts(reference, counts, numbers[~np.isnan(numbers)], smoothing=smoothing)
-    counts = category_counts(np.asarray(values, dtype=object), reference.vocabulary)
-    return score_counts(reference, counts, smoothing=smoothing)
+    return score_encoded(reference, encode_column(reference, values), smoothing=smoothing)
 
 
 def textbook_alarm(rule: str, scores: dict[str, float]) -> bool | None:

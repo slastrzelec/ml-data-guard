@@ -2,8 +2,9 @@
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
-> **Status: phase 1 of 3 done.** The benchmark and its first results are below. The reusable
-> library layer (schema, validator, CLI) and two more datasets are not built yet.
+> **Status: phases 1 and 2 of 3 done.** The benchmark with its first results and the library layer
+> (schema, validator, comparison, skew check, model unit test, CLI) are in place. Two more datasets
+> and the portfolio page are not done yet.
 
 The goal is to measure, not to assume: inject known data faults (a feature pinned to `-1`, a dropped
 column, a unit change, a distribution shift, a feature computed with future information) and report
@@ -94,7 +95,9 @@ unchanged. Over five shift lengths and both batch sizes the best detector flags 
 batches, which is its false-alarm level, while the model's accuracy moves by **-5.1 points
 [-6.8, -3.4]** (shift 1: the leak makes the model look better) to **+7.0 points [+4.8, +9.3]**
 (shift 10). Comparing distributions cannot find this class of error; it needs a row-by-row
-comparison of training and serving features, which is planned and not built yet.
+comparison of training and serving features. That check now exists (`mlguard skew`): in a test on
+the same fault it flags 1,999 of 2,000 rows. It needs both versions of the same rows, which is why it
+is not a column of the tables above.
 
 ### How to read these numbers (limits)
 
@@ -113,19 +116,37 @@ comparison of training and serving features, which is planned and not built yet.
 - Faults are synthetic and injected one at a time; one model family, accuracy only; two of the three
   datasets are synthetic. The Online News Popularity and Beijing air-quality runs are not done yet.
 
-## What exists today
+## What it does
 
-- `mlguard.distances`: `L-inf`, `L1`, KL, JS, PSI on probability vectors; chi-square on counts;
-  two-sample KS on raw samples; binning whose edges and vocabularies come from the reference data only.
-- `mlguard.inject`: twelve fault injectors on pandas DataFrames (pinned value, dropped feature, type
-  change, new category, out-of-domain values, missing values, unit change, mean shift, variance
-  change, duplicated rows, time travel, and a tiny-noise negative control), each a pure, seeded
-  function with a documented severity unit.
-- `mlguard.bench`: the benchmark. Reference statistics from the reference split, thresholds
-  calibrated on clean batches of a separate split to a 1% false-positive target, faults injected into
-  evaluation batches only, and a model trained on the reference split and scored on a held-out split
-  to see whether an alarm matters. Fixed "textbook" rules (`p < 0.05`, `PSI > 0.2`) are measured next
-  to the calibrated ones. Output: a JSON result and a generated Markdown report.
+**Measure** (the benchmark, results above):
+
+- `mlguard.distances`, `mlguard.detectors`: `L-inf`, `L1`, KL, JS, PSI, chi-square and KS per feature,
+  with bins and vocabularies taken from the reference data only.
+- `mlguard.inject`: twelve seeded fault injectors with documented severity units.
+- `mlguard.bench`: thresholds calibrated on a separate split, faults injected into evaluation batches
+  only, a model scored on a held-out split, fixed "textbook" rules measured next to the calibrated ones.
+
+**Use** (the library and the `mlguard` command):
+
+- **Schema.** `mlguard infer` reads reference data and writes a small JSON schema: type, share of
+  rows that must have a value, numeric range, allowed categories. It holds statistics, never rows;
+  category values can be stored hashed or left out.
+- **Validation.** `mlguard validate` checks one batch against the schema and explains each finding
+  with the observed number, the limit and a suggested schema change. It catches a dropped column, a
+  changed type, new categories, out-of-range values and missing values.
+- **Distribution shift.** `mlguard compare` measures the distance of a batch to the reference and
+  calibrates the limit on the reference for the size of that batch, because the benchmark showed
+  that a fixed limit is only right for one batch size.
+- **Training/serving skew.** `mlguard skew` joins two logs on a key and compares the same feature of
+  the same row. This is the check that finds a feature computed with future information, the blind
+  spot of every distribution check above.
+- **Model unit test.** `run_model_test` feeds rows that the schema allows, including its edges, to
+  your feature or prediction code and returns a single synthetic row that breaks it.
+
+Every command exits with 0 (clean), 1 (anomaly) or 2 (unreadable input), and prints text or JSON,
+so it can be a CI step. Cell values are not printed unless asked for.
+
+**Not in scope:** repairing data, streaming validation, text or image data, a web interface.
 
 ## Quick start
 
@@ -135,11 +156,28 @@ cd ml-data-guard
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 pytest
-python -m mlguard.bench --config benchmarks/configs/smoke.json --out smoke.json --report smoke.md
 ```
 
-The last command is a small synthetic run (under a minute) that writes the same kind of report as the
-full runs. Configs and how to run them: [`benchmarks/README.md`](benchmarks/README.md).
+A five-minute tour on synthetic data, with the expected exit code of every command, is in
+[`examples/README.md`](examples/README.md). In short:
+
+```bash
+python examples/make_example_data.py
+mlguard infer examples/data/reference.csv -o examples/data/schema.json --exclude id,target
+mlguard validate examples/data/batch_broken.csv --schema examples/data/schema.json
+```
+
+```
+ERROR   x_normal: OUT_OF_RANGE - 197 of 2000 rows (9.85%) are outside [1.6879, 94.6904]; observed range [19.1831, 85724.5]
+        suggestion: widen the range of 'x_normal' to [19.1831, 85724.5], or raise max_out_of_range_fraction to 0.0985
+ERROR   x_zero_inflated: MISSING_FEATURE - the column is missing from the batch
+        suggestion: restore the column, or mark 'x_zero_inflated' as deprecated
+ERROR   c_small: UNEXPECTED_VALUES - 100 of 2000 rows (5.00%) hold 1 distinct value(s) not in the domain
+        suggestion: add the new value(s) to the domain of 'c_small', or raise max_unexpected_fraction to 0.05
+validate: 3 error(s), 0 warning(s)
+```
+
+Reproducing the benchmark: [`benchmarks/README.md`](benchmarks/README.md).
 
 ## Testing
 
@@ -165,6 +203,20 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
   tiny-noise control stay near the calibrated false-positive rate; strong faults are found; a time
   shift changes the model's accuracy while the distribution distances stay silent (the expected
   blind spot); duplicated rows keep their labels.
+- **Schema:** an inferred schema accepts its own reference data; the tolerance for missing values
+  accepts fresh samples; JSON round trip; with hashed or omitted domains no category value
+  appears in the schema file or in a report.
+- **Validator:** every anomaly type is raised by a minimal example and not on clean data. Against
+  the injectors it catches six of the twelve faults (dropped column, type change, new category,
+  out-of-range values, unit change, missing values); the other six stay inside the schema and
+  are asserted to be missed, so the limit is documented by a test.
+- **Comparison and skew:** the limit a batch is compared with does not depend on that batch;
+  clean batches rarely alarm and shifted ones do; the skew check flags a time shift in 1,999 of
+  2,000 rows where the distribution check reports nothing.
+- **Model unit test:** generated rows satisfy the schema and reach its edges; a function with a
+  hidden assumption fails and the returned row reproduces the failure on its own.
+- **Command line:** exit codes 0 / 1 / 2, the shape of the JSON output, and the walk-through in
+  `examples/README.md`, which is executed command by command.
 - **Failure handling:** unnormalised, negative, non-finite, empty or misaligned input, unknown
   config keys and damaged data files raise an error instead of returning a plausible number.
 - **Security and hygiene:** no socket can be opened during tests; no data, secret or large file is
@@ -172,22 +224,42 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
 
 **How the tests were checked:** `python tools/mutation_check.py` re-introduces known bugs one at a
 time (for example `L-inf` returning a sum, an injector that ignores the seed, thresholds calibrated on
-the evaluation split, a model trained on the held-out split, time-ordered data shuffled before
-splitting) and requires the suite to fail for each of them. The list is hand-written and targeted; it
+the evaluation split, a silenced anomaly type, category values printed by default, exit code 0
+despite anomalies) and requires the suite to fail for each of the 82 mutants. The list is hand-written and targeted; it
 is not exhaustive mutation testing.
 
 **Not covered**
 
-- Schema, single-batch validator, key-joined feature-skew comparison and CLI: not implemented yet.
 - The published numbers themselves: tests cover the code on small synthetic runs; the full runs
   were made once per config on one machine (re-running a config reproduced the JSON file exactly,
   except for the control that was changed between the two runs).
 - The Covertype loader on the real file: it is tested on a small hand-made archive of the same
   format; the download script itself is not tested (it is the only code that uses the network).
 - Whether the synthetic faults resemble real incidents: they are simplified, documented models.
-- pandas nullable (`Int64`, `boolean`) and Arrow-backed dtypes in the injectors.
+- pandas nullable (`Int64`, `boolean`) and Arrow-backed dtypes; Parquet input (it needs `pyarrow`,
+  which is not installed in CI).
+- Large inputs: validation and skew comparison loop over cells in Python and were only run on
+  tables of up to 20,000 rows.
+- The example GitHub Actions workflow in `examples/` is not executed anywhere.
 - Numerical behaviour on vectors with more than a few dozen categories or with probabilities
   below `1e-12`.
+
+## Limitations
+
+- Inferred schemas are loose on purpose and still not safe from false alarms: a heavy-tailed feature
+  will sooner or later exceed an inferred range. The anomaly then proposes the new range; accepting
+  it is a human decision.
+- Hashing a domain keeps values out of files and reports but does not protect short or guessable
+  values against a dictionary attack. Use `--domains none` for personal data.
+- CSV has no types: a numeric column with one text cell is read as text and reported as a type
+  mismatch for every row.
+- Calibrating `compare` takes a few seconds and uses half of the reference data for the statistics.
+
+## Roadmap
+
+- [ ] Benchmark on Online News Popularity and Beijing air quality (real time-ordered data).
+- [ ] Optional comparison with TFDV and Evidently on the same injected faults.
+- [ ] Portfolio page.
 
 ## License
 

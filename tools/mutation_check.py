@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-COPIED = ("src", "tests", "benchmarks", "pyproject.toml", ".gitignore")
+COPIED = ("src", "tests", "benchmarks", "examples", "pyproject.toml", ".gitignore")
 DISTANCES = "src/mlguard/distances.py"
 INJECT = "src/mlguard/inject.py"
 DISTANCE_TESTS = ("tests/test_distances.py", "tests/test_binning.py")
@@ -31,6 +31,16 @@ DETECTORS = "src/mlguard/detectors.py"
 BENCH = "src/mlguard/bench.py"
 DETECTOR_TESTS = ("tests/test_detectors.py",)
 BENCH_TESTS = ("tests/test_bench.py",)
+SCHEMA = "src/mlguard/schema.py"
+VALIDATE = "src/mlguard/validate.py"
+COMPARE = "src/mlguard/compare.py"
+MODELTEST = "src/mlguard/modeltest.py"
+CLI = "src/mlguard/cli.py"
+SCHEMA_TESTS = ("tests/test_schema.py",)
+VALIDATE_TESTS = ("tests/test_validate.py",)
+COMPARE_TESTS = ("tests/test_compare.py",)
+MODELTEST_TESTS = ("tests/test_modeltest.py",)
+CLI_TESTS = ("tests/test_cli.py",)
 
 
 @dataclass(frozen=True)
@@ -451,6 +461,184 @@ MUTANTS = [
         "        labels = labels[batch.index.to_numpy()]\n"
         "        return self.estimator.predict(self.encode(batch)) == labels",
         BENCH_TESTS,
+    ),
+    Mutant(
+        "schema demands exactly the presence seen in the reference",
+        SCHEMA,
+        "return max(0.0, math.floor((1.0 - 2.0 * missing - 0.01) * 1000.0 + 1e-9) / 1000.0)",
+        "return 1.0 - missing",
+        SCHEMA_TESTS,
+    ),
+    Mutant(
+        "range padding makes a non-negative feature negative",
+        SCHEMA,
+        "minimum = max(0.0, low - padding) if low >= 0 else low - padding",
+        "minimum = low - padding",
+        SCHEMA_TESTS,
+    ),
+    Mutant(
+        "a hashed domain stores the plain values",
+        SCHEMA,
+        "domain = tuple(sorted(hashed_token(value) for value in distinct))",
+        "domain = tuple(distinct)",
+        SCHEMA_TESTS,
+    ),
+    Mutant(
+        "the domain size bound is ignored",
+        SCHEMA,
+        'if domains == "none" or len(distinct) > max_domain_size:',
+        'if domains == "none":',
+        SCHEMA_TESTS,
+    ),
+    Mutant(
+        "unknown keys in a schema file are accepted",
+        SCHEMA,
+        "if not isinstance(entry, dict) or not set(entry) <= known:",
+        "if not isinstance(entry, dict):",
+        SCHEMA_TESTS,
+    ),
+    Mutant(
+        "TYPE_MISMATCH is silenced",
+        VALIDATE,
+        "    if mismatched:\n        found",
+        "    if False:\n        found",
+        VALIDATE_TESTS,
+    ),
+    Mutant(
+        "LOW_PRESENCE is silenced",
+        VALIDATE,
+        "if presence < feature.min_presence - _EPSILON:",
+        "if False:",
+        VALIDATE_TESTS,
+    ),
+    Mutant(
+        "OUT_OF_RANGE is silenced",
+        VALIDATE,
+        "if outside / n_rows > feature.max_out_of_range_fraction + _EPSILON:",
+        "if False:",
+        VALIDATE_TESTS,
+    ),
+    Mutant(
+        "UNEXPECTED_VALUES is silenced",
+        VALIDATE,
+        "if len(unexpected) / n_rows > feature.max_unexpected_fraction + _EPSILON:",
+        "if False:",
+        VALIDATE_TESTS,
+    ),
+    Mutant(
+        "UNEXPECTED_FEATURE is silenced",
+        VALIDATE,
+        "if name not in schema.names and name not in schema.ignored:",
+        "if False:",
+        VALIDATE_TESTS,
+    ),
+    Mutant(
+        "MISSING_FEATURE is reported for deprecated features",
+        VALIDATE,
+        "    for feature in schema.active:\n        if feature.name not in columns:",
+        "    for feature in schema.features:\n        if feature.name not in columns:",
+        VALIDATE_TESTS,
+    ),
+    Mutant(
+        "unexpected category values are printed by default",
+        VALIDATE,
+        "            if show_values:",
+        "            if True:",
+        VALIDATE_TESTS,
+    ),
+    Mutant(
+        "text in a numeric feature is also reported as out of range or missing",
+        VALIDATE,
+        '    checked = values[typed]\n    if feature.kind == "numeric" and checked.size:\n'
+        "        numbers = checked.astype(np.float64)",
+        '    checked = values[present]\n    if feature.kind == "numeric" and checked.size:\n'
+        '        numbers = pd.to_numeric(pd.Series(checked), errors="coerce").fillna(1e12)'
+        ".to_numpy()",
+        VALIDATE_TESTS,
+    ),
+    Mutant(
+        "distribution shift alarms below the limit",
+        COMPARE,
+        "        if score > thresholds[name]:",
+        "        if score < thresholds[name]:",
+        COMPARE_TESTS,
+    ),
+    Mutant(
+        "calibration ignores the batch size",
+        COMPARE,
+        "rows = rng.choice(second, size=batch_size, replace=False)",
+        "rows = rng.choice(second, size=min(200, second.size), replace=False)",
+        COMPARE_TESTS,
+    ),
+    Mutant(
+        "skew treats a missing value as equal to any value",
+        COMPARE,
+        "            result[position] = missing_a != missing_b",
+        "            result[position] = False",
+        COMPARE_TESTS,
+    ),
+    Mutant(
+        "skew compares floats without a tolerance",
+        COMPARE,
+        "result[position] = not np.isclose(float(a), float(b), rtol=rtol, atol=atol)",
+        "result[position] = float(a) != float(b)",
+        COMPARE_TESTS,
+    ),
+    Mutant(
+        "skew accepts duplicated keys",
+        COMPARE,
+        "if keys.isna().any() or keys.duplicated().any():",
+        "if keys.isna().any():",
+        COMPARE_TESTS,
+    ),
+    Mutant(
+        "model test does not generate the edges of a range",
+        MODELTEST,
+        "    values[: len(edges)] = edges[:n_rows]",
+        "    del edges",
+        MODELTEST_TESTS,
+    ),
+    Mutant(
+        "model test never generates missing values",
+        MODELTEST,
+        "n_missing = int(np.floor((1.0 - feature.min_presence) * n_rows + 1e-9))",
+        "n_missing = 0",
+        MODELTEST_TESTS,
+    ),
+    Mutant(
+        "model test ignores floating-point errors",
+        MODELTEST,
+        'with np.errstate(divide="raise", invalid="raise", over="raise"):',
+        'with np.errstate(divide="ignore", invalid="ignore", over="ignore"):',
+        MODELTEST_TESTS,
+    ),
+    Mutant(
+        "model test accepts NaN predictions",
+        MODELTEST,
+        'if array.dtype.kind in "fc" and not np.all(np.isfinite(array)):',
+        "if False:",
+        MODELTEST_TESTS,
+    ),
+    Mutant(
+        "command line exits with 0 when there are anomalies",
+        CLI,
+        "    return EXIT_ANOMALIES if failed else EXIT_OK",
+        "    return EXIT_OK",
+        CLI_TESTS,
+    ),
+    Mutant(
+        "command line ignores --strict",
+        CLI,
+        'failed = has_errors(anomalies, strict=getattr(arguments, "strict", False))',
+        "failed = has_errors(anomalies, strict=False)",
+        CLI_TESTS,
+    ),
+    Mutant(
+        "unreadable input looks like a data anomaly",
+        CLI,
+        '        print(f"error: {error}", file=sys.stderr)\n        return EXIT_USAGE',
+        '        print(f"error: {error}", file=sys.stderr)\n        return EXIT_ANOMALIES',
+        CLI_TESTS,
     ),
 ]
 
