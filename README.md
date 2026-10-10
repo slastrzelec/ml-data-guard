@@ -43,6 +43,8 @@ Brackets are 95% intervals. Full tables:
 
 ### 1. False alarms on clean data
 
+![False alarms of fixed thresholds, calibrated distances and the inferred schema on clean data of five datasets](figures/false_alarms.png)
+
 Share of clean (feature, batch) pairs that raise an alarm. Nothing was injected, so every alarm is false.
 
 | Rule | Covertype, 10,000 rows | News, 1,000 rows | Beijing, 10,000 rows | Synthetic, 100,000 rows | Synthetic series, 10,000 rows |
@@ -73,6 +75,8 @@ Share of clean (feature, batch) pairs that raise an alarm. Nothing was injected,
   edited by hand.
 
 ### 2. Which check finds which fault (Covertype, 10,000 rows per batch)
+
+![Recall against dose for a unit change and a mean shift: the schema finds the first at any dose and the second never](figures/schema_and_distances.png)
 
 The five distances are calibrated to a 1% false-positive target (achieved: 0.9 - 1.3% per feature).
 Recall = share of 100 faulty batches flagged on the faulted feature. `PSI > 0.2` and the inferred
@@ -151,6 +155,8 @@ recall of any of the seven calibrated distances. Their achieved false-alarm rate
   a solved one.
 
 ### 4. The blind spot of every single-table check: time travel
+
+![Recall of every check stays near zero for a feature shifted into the future while model accuracy changes by several points](figures/time_travel.png)
 
 Shifting a feature forward in time (`time_travel`) leaves its distribution almost unchanged. On the
 synthetic series the best distance flags 1 - 5% of the faulty batches over five shift lengths and two
@@ -297,6 +303,9 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
   page is exactly what the build produces, so a stale page fails the suite; the page references no
   external resource, uses no browser storage and writes no markup from data; feature names,
   thresholds and file paths are left out.
+- **Figures:** the three figures are drawn by `tools/make_figures.py` from the result files; the
+  functions that pick the numbers are tested (right run, right fault, increasing dose, unscored
+  cells left out, sign and unit of the accuracy loss).
 - **Failure handling:** unnormalised, negative, non-finite, empty or misaligned input, unknown
   config keys and damaged data files raise an error instead of returning a plausible number.
 - **Security and hygiene:** no socket can be opened during tests; no data, secret or large file is
@@ -321,6 +330,8 @@ is not exhaustive mutation testing.
 - Large inputs: validation and skew comparison loop over cells in Python and were only run on
   tables of up to 20,000 rows.
 - The example GitHub Actions workflow in `examples/` is not executed anywhere.
+- The drawing of the figures: matplotlib is not installed in CI, so nothing checks that the
+  tracked images match the current result files. They were regenerated and inspected by hand.
 - How the explorer renders: there is no JavaScript test in CI. It was opened once in headless
   Chromium at two widths, stepping through all 559 combinations without a script error or a
   network request; other browsers were not checked.

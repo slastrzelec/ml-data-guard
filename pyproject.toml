@@ -30,6 +30,9 @@ dependencies = [
 bench = [
     "scikit-learn>=1.5,<2",
 ]
+figures = [
+    "matplotlib>=3.8,<4",
+]
 dev = [
     "scikit-learn>=1.5,<2",
     "pytest>=8,<10",

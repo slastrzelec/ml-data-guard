@@ -299,6 +299,10 @@ the comparison with existing tools does not exist.
 
 Five mutants added for the explorer build (95 in total), all killed locally.
 
+Static figures (section 16.6): three images in `figures/`, linked from the README and the portfolio page.
+The selection of the numbers is tested (`tests/test_figures.py`); the drawing is not, and the images were
+inspected by hand.
+
 ## 14. Phase 2 design: the library layer
 
 Phase 1 answered "which check finds what". Phase 2 turns the checks into something a pipeline can call. No
@@ -507,6 +511,16 @@ result files and is the only exception.
   example data, so that it is no longer untested.
 - Creating the PyPI project and the trusted-publisher link is done by the repository owner; no credential
   is handled by the build scripts.
+
+### 16.6 Static figures
+
+GitHub does not render an embedded page, so the README gets three static images, drawn by
+`tools/make_figures.py` from the result files: false alarms on clean data for five datasets; recall against
+dose for a unit change and a mean shift on Covertype; recall and model accuracy for `time_travel` on the
+synthetic series. The same rules as for the explorer apply: aggregate numbers only, nothing computed
+beyond a change of unit (fractions to percentage points), unscored cells left out instead of drawn as zero.
+matplotlib is an optional extra (`figures`) outside the package dependencies and outside CI. The images
+are tracked; that they match the result files is not checked automatically.
 
 ### 16.4 Tests added in phase 4
 
