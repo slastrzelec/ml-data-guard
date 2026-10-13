@@ -447,8 +447,8 @@ MUTANTS = [
     Mutant(
         "a dropped feature is scored as if it were there",
         BENCH,
-        "                if not spec.preserves_shape:\n                    continue",
-        "                if not spec.preserves_shape:\n"
+        "schema_check.faulty(str(feature), faulty)})\n                    continue",
+        "schema_check.faulty(str(feature), faulty)})\n"
         "                    faulty = dataset.frame.iloc[rows]",
         BENCH_TESTS,
     ),
@@ -528,8 +528,8 @@ MUTANTS = [
     Mutant(
         "UNEXPECTED_VALUES is silenced",
         VALIDATE,
-        "if len(unexpected) / n_rows > feature.max_unexpected_fraction + _EPSILON:",
-        "if False:",
+        "elif outside / n_rows > feature.max_unexpected_fraction + _EPSILON:",
+        "elif False:",
         VALIDATE_TESTS,
     ),
     Mutant(
@@ -549,18 +549,18 @@ MUTANTS = [
     Mutant(
         "unexpected category values are printed by default",
         VALIDATE,
-        "            if show_values:",
-        "            if True:",
+        "        if show_values:\n            detail",
+        "        if True:\n            detail",
         VALIDATE_TESTS,
     ),
     Mutant(
         "text in a numeric feature is also reported as out of range or missing",
         VALIDATE,
-        '    checked = values[typed]\n    if feature.kind == "numeric" and checked.size:\n'
-        "        numbers = checked.astype(np.float64)",
-        '    checked = values[present]\n    if feature.kind == "numeric" and checked.size:\n'
-        '        numbers = pd.to_numeric(pd.Series(checked), errors="coerce").fillna(1e12)'
-        ".to_numpy()",
+        "            violating = typed & ((numbers < low) | (numbers > high))",
+        "            violating = present & (\n"
+        "                (np.where(typed, numbers, 1e12) < low)\n"
+        "                | (np.where(typed, numbers, 1e12) > high)\n"
+        "            )",
         VALIDATE_TESTS,
     ),
     Mutant(
