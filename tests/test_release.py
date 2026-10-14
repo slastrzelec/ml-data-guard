@@ -138,16 +138,12 @@ def test_the_published_files_hold_the_package_and_its_documents_only():
     assert not any(name.startswith(("data", "benchmarks", "tests", ".env")) for name in sdist)
 
 
-def test_the_space_and_the_container_install_what_this_commit_releases():
-    space = (REPO / "deploy" / "huggingface" / "Dockerfile").read_text(encoding="utf-8")
-    pinned = re.search(r'"ml-data-guard\[api\]==([^"]+)"', space)[1]
+def test_the_container_runs_the_service_as_a_non_root_user():
     root = (REPO / "Dockerfile").read_text(encoding="utf-8")
 
-    assert pinned == _version()
-    assert "USER app" in space
     assert "USER app" in root
-    assert 'CMD ["python", "-m", "mlguard.api"]' in space
     assert 'CMD ["python", "-m", "mlguard.api"]' in root
+    assert 'pip install ".[api]"' in root
 
 
 def test_the_container_image_holds_no_data_or_secret():

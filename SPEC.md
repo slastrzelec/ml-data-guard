@@ -1,6 +1,6 @@
 # SPEC: ml-data-guard
 
-Status: **APPROVED v0.9 (2026-10-14).** Phases 1 to 4 complete (audits in section 13); version 0.1.0 is on PyPI. Phase 5 (web service) designed in section 17. Scope changes go into this file first.
+Status: **APPROVED v1.0 (2026-10-14).** Phases 1 to 5 complete (audits in section 13); version 0.2.0 is on PyPI. No public deployment of the web service (section 17.6). Scope changes go into this file first.
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
@@ -311,6 +311,24 @@ tagged only on a commit with green CI.
 
 Open: the rendering of the README on pypi.org was not inspected; the release workflow has run once.
 
+### Phase 5: web service (2026-10-14, version 0.2.0)
+
+| Acceptance criterion (section 17.5) | State | Evidence |
+|---|---|---|
+| 1. Runs locally from the package and from the Docker image | Met | `python -m mlguard.api` from the 0.2.0 wheel installed from PyPI answered `/api/v1/health`, `/` and `/api/v1/demo`; CI job `container` builds the image, starts it and checks the same endpoints. |
+| 2. Tests of 17.4 pass in CI on 3.11 and 3.12, coverage threshold unchanged | Met | 780 tests on Windows locally; CI green on commit dd971a9; coverage about 99%; 104 mutants killed. |
+| 3. Public deployment | Dropped | Section 17.6. |
+| 4. README and portfolio page describe the service, its security rules and its gaps | Met | README sections "Web service" and "Testing"; portfolio page. |
+
+Found during the phase and fixed: the offline guard of the test suite refused every socket, which hung
+the API tests on Windows (event loops wake themselves over a loopback socket pair); it now refuses every
+host but this machine, and `pytest-timeout` turns a hung test into a failure. Parameter ids of several
+hundred kilobytes broke Windows' limit on environment variables; the tests now have short ids. The
+mutation check did not copy the new container files and failed its baseline in CI once.
+
+Not covered: the front end has no JavaScript test (clicked through once in headless Chromium); the
+service has no rate limiting by client and no wall-clock timeout; it was not load-tested.
+
 ## 14. Phase 2 design: the library layer
 
 Phase 1 answered "which check finds what". Phase 2 turns the checks into something a pipeline can call. No
@@ -582,8 +600,7 @@ answer comes from the existing functions (`inject`, `detectors`, `infer_schema`,
 - Run with `python -m mlguard.api`, which switches Uvicorn's access log off (it records client
   addresses and query strings) and logs method, path, status and duration instead.
 - Deployment: a Dockerfile in the repository root (non-root user 1000, `python:3.12-slim`, port 7860)
-  built and started in CI, and `deploy/huggingface/` (Dockerfile and Space card) for a Hugging Face Space
-  that installs the released version from PyPI.
+  built and started in CI. No public deployment (decision of 2026-10-14, see section 17.6).
 
 ### 17.2 Data security for uploads (binding)
 
@@ -645,6 +662,17 @@ answer comes from the existing functions (`inject`, `detectors`, `infer_schema`,
 1. `pip install "ml-data-guard[api]"` and `uvicorn mlguard.api:app` serve the page and the API locally;
    `docker build` and `docker run` do the same.
 2. All tests of 17.4 pass in CI on Python 3.11 and 3.12; coverage threshold unchanged.
-3. The service is deployed on a Hugging Face Space and linked from the README and the portfolio page.
+3. ~~The service is deployed on a Hugging Face Space~~ - dropped, see 17.6. The README and the portfolio
+   page say how to run it locally or from the Docker image.
 4. README and portfolio page describe the service, its security rules and what is not covered (no rate
-   limiting by client, single instance, cold start after inactivity, rendering checked in one browser).
+   limiting by client, rendering checked in one browser, no public instance).
+
+### 17.6 Decision: no public deployment (2026-10-14)
+
+A free public instance was tried and dropped. Hugging Face now offers Docker Spaces to paid accounts
+only, and free Gradio Spaces run on ZeroGPU hardware, which stops any app without a GPU function at
+start-up (observed: the service started, then the platform shut it down with "No @spaces.GPU function
+detected"). Adding an unused GPU function to pass that check would misuse the platform and was
+rejected. Other free hosts sleep after a few minutes and need a separate account. The service is
+therefore delivered as a package (`pip install "ml-data-guard[api]"`) and a Docker image that CI
+builds, starts and checks on every commit; the static results explorer remains the public demo.

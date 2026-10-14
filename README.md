@@ -2,8 +2,9 @@
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
-> **Status:** benchmark, library and command line are complete; results below. The optional
-> comparison with TFDV and Evidently was dropped (reason in `SPEC.md`, section 15).
+> **Status:** benchmark, library, command line and web service are complete; results below.
+> Not done, with reasons in `SPEC.md`: the comparison with TFDV and Evidently (section 15) and a
+> public instance of the web service (section 17).
 
 The goal is to measure, not to assume: inject known data faults (a feature pinned to `-1`, a dropped
 column, a unit change, a distribution shift, a feature computed with future information) into public
@@ -398,7 +399,9 @@ is not exhaustive mutation testing.
   tracked images match the current result files. They were regenerated and inspected by hand.
 - The web front end in a browser: there is no JavaScript test in CI. Both tabs were clicked through
   once in headless Chromium at desktop and phone width, with no script error and no request to
-  another host. The Hugging Face deployment is checked by hand only.
+  another host.
+- A public instance: there is none (Docker hosting is not free on Hugging Face; `SPEC.md`,
+  section 17.6). The service runs locally or from the Docker image.
 - Abuse of the public service: there is no rate limiting by client and no wall-clock timeout; the
   work per request is bounded by the upload limits instead.
 - How the explorer renders: there is no JavaScript test in CI. It was opened once in headless
