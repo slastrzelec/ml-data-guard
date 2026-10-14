@@ -24,7 +24,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 COPIED = (
     "src", "tests", "tools", "explorer", "figures", "benchmarks", "examples", "pyproject.toml",
-    "README.md", "action.yml", ".github", ".gitignore",
+    "README.md", "action.yml", ".github", ".gitignore", "Dockerfile", ".dockerignore", "deploy",
 )  # fmt: skip
 EXPLORER = "tools/build_explorer.py"
 EXPLORER_TESTS = ("tests/test_explorer.py",)
