@@ -1,0 +1,58 @@
+name: ml-data-guard validate
+description: Check a data batch against a schema (and optionally against reference data) and fail the job on any anomaly.
+author: Sławomir Strzelec
+branding:
+  icon: shield
+  color: orange
+
+inputs:
+  batch:
+    description: Path of the batch to check (CSV).
+    required: true
+  schema:
+    description: Path of the schema written by `mlguard infer`.
+    required: true
+  reference:
+    description: Path of the reference data. When set, the batch is also compared with it for distribution shift.
+    required: false
+    default: ""
+  format:
+    description: Report format, `text` or `json`.
+    required: false
+    default: text
+  package:
+    description: What pip installs. Defaults to the release that matches this version of the action.
+    required: false
+    default: ml-data-guard==0.1.0
+  python-version:
+    description: Python used to run the checks.
+    required: false
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install ml-data-guard
+      shell: bash
+      env:
+        MLGUARD_PACKAGE: ${{ inputs.package }}
+      run: python -m pip install --disable-pip-version-check --quiet "$MLGUARD_PACKAGE"
+    - name: Schema check
+      shell: bash
+      env:
+        MLGUARD_BATCH: ${{ inputs.batch }}
+        MLGUARD_SCHEMA: ${{ inputs.schema }}
+        MLGUARD_FORMAT: ${{ inputs.format }}
+      run: mlguard validate "$MLGUARD_BATCH" --schema "$MLGUARD_SCHEMA" --format "$MLGUARD_FORMAT"
+    - name: Distribution shift against the reference
+      if: ${{ inputs.reference != '' }}
+      shell: bash
+      env:
+        MLGUARD_BATCH: ${{ inputs.batch }}
+        MLGUARD_SCHEMA: ${{ inputs.schema }}
+        MLGUARD_FORMAT: ${{ inputs.format }}
+        MLGUARD_REFERENCE: ${{ inputs.reference }}
+      run: mlguard compare "$MLGUARD_REFERENCE" "$MLGUARD_BATCH" --schema "$MLGUARD_SCHEMA" --format "$MLGUARD_FORMAT"

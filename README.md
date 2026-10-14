@@ -224,7 +224,27 @@ so it can be a CI step. Cell values are not printed unless asked for.
 
 **Not in scope:** repairing data, streaming validation, text or image data, a web interface.
 
-## Quick start
+## Install
+
+```bash
+pip install ml-data-guard            # the library and the mlguard command
+pip install "ml-data-guard[bench]"   # adds scikit-learn for the model-impact part of the benchmark
+```
+
+As a step in GitHub Actions, failing the job on any anomaly:
+
+```yaml
+- uses: slastrzelec/ml-data-guard@v0.1.0
+  with:
+    batch: data/batch.csv
+    schema: schema.json
+    reference: data/reference.csv   # optional: also check for distribution shift
+```
+
+The action is run in this repository's CI on a clean and on a broken example batch, and must
+reject the broken one.
+
+## Quick start (from source)
 
 ```bash
 git clone https://github.com/slastrzelec/ml-data-guard.git
@@ -296,6 +316,11 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
   2,000 rows where the distribution check reports nothing.
 - **Model unit test:** generated rows satisfy the schema and reach its edges; a function with a
   hidden assumption fails and the returned row reproduces the failure on its own.
+- **Release and action:** the version in the package, the action and the example workflow is the
+  same; inputs reach shell commands only through environment variables (no script injection);
+  only the publishing job can request an identity token and no credential is stored; every
+  external action is pinned to a version; the README shown on PyPI has no relative link or image.
+  The action itself runs in CI: it passes a clean batch and must reject a broken one.
 - **Command line:** exit codes 0 / 1 / 2, the shape of the JSON output, and the walk-through in
   `examples/README.md`, which is executed command by command.
 - **Results explorer:** every cell of every published result file appears in the page with the same
@@ -329,7 +354,9 @@ is not exhaustive mutation testing.
   which is not installed in CI).
 - Large inputs: validation and skew comparison loop over cells in Python and were only run on
   tables of up to 20,000 rows.
-- The example GitHub Actions workflow in `examples/` is not executed anywhere.
+- The release workflow itself: it runs only when a version tag is pushed, so a broken release
+  job shows up at release time, not in CI. The package build, `twine check` and an install of the
+  wheel in a clean environment were run locally before the first release.
 - The drawing of the figures: matplotlib is not installed in CI, so nothing checks that the
   tracked images match the current result files. They were regenerated and inspected by hand.
 - How the explorer renders: there is no JavaScript test in CI. It was opened once in headless

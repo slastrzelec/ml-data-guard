@@ -40,6 +40,39 @@ jobs:
       - name: Dependency audit
         run: pip-audit -r requirements-dev.txt
 
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Example data and schema
+        run: |
+          pip install -e .
+          python examples/make_example_data.py
+          mlguard infer examples/data/reference.csv -o examples/data/schema.json --exclude id,target
+      - name: The action passes a clean batch
+        uses: ./
+        with:
+          batch: examples/data/batch_ok.csv
+          schema: examples/data/schema.json
+          reference: examples/data/reference.csv
+          package: .
+      - name: The action rejects a broken batch
+        id: broken
+        continue-on-error: true
+        uses: ./
+        with:
+          batch: examples/data/batch_broken.csv
+          schema: examples/data/schema.json
+          package: .
+      - name: Fail unless the broken batch was rejected
+        if: ${{ steps.broken.outcome != 'failure' }}
+        run: |
+          echo "the action accepted a batch with three injected faults"
+          exit 1
+
   mutation:
     runs-on: ubuntu-latest
     steps:

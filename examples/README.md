@@ -2,7 +2,7 @@
 
 Everything below runs on synthetic data generated locally; nothing is downloaded. Run the commands
 from the repository root after `pip install -e ".[dev]"`. The line after each command is its exit
-code (a CI step fails on anything but 0). This file is executed by `tests/test_examples.py`, so the
+code (a CI step fails on anything but 0). This file is executed by `tests/test_cli.py`, so the
 commands and exit codes are known to be true.
 
 ## 1. Data and schema

@@ -14,11 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: slastrzelec/ml-data-guard@v0.1.0
         with:
-          python-version: "3.12"
-      - run: pip install "ml-data-guard @ git+https://github.com/slastrzelec/ml-data-guard"
-      - name: Schema check
-        run: mlguard validate data/batch.csv --schema schema.json
-      - name: Distribution shift against the reference
-        run: mlguard compare data/reference.csv data/batch.csv --schema schema.json
+          batch: data/batch.csv
+          schema: schema.json
+          reference: data/reference.csv

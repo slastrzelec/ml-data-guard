@@ -1,12 +1,12 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27", "hatch-fancy-pypi-readme>=24"]
 build-backend = "hatchling.build"
 
 [project]
 name = "ml-data-guard"
 version = "0.1.0"
 description = "Data validation for ML pipelines, benchmarked with injected faults."
-readme = "README.md"
+dynamic = ["readme"]
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -47,9 +47,30 @@ mlguard = "mlguard.cli:main"
 
 [project.urls]
 Repository = "https://github.com/slastrzelec/ml-data-guard"
+Homepage = "https://slastrzelec.github.io/portfolio/ml-data-guard/"
+Specification = "https://github.com/slastrzelec/ml-data-guard/blob/main/SPEC.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mlguard"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/mlguard", "README.md", "SPEC.md", "LICENSE", "pyproject.toml"]
+
+# PyPI shows the README without the repository around it: relative links and images become
+# absolute links to GitHub (checked in tests/test_release.py).
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(!\[[^\]]*\])\((?!https?://)([^)]+)\)'
+replacement = '\1(https://raw.githubusercontent.com/slastrzelec/ml-data-guard/main/\2)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(?<!!)(\[[^\]]*\])\((?!https?://|#)([^)]+)\)'
+replacement = '\1(https://github.com/slastrzelec/ml-data-guard/blob/main/\2)'
 
 [tool.pytest.ini_options]
 minversion = "8.0"

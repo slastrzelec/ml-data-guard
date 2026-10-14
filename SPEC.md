@@ -531,6 +531,11 @@ are tracked; that they match the result files is not checked automatically.
   `localStorage`, `sessionStorage`, `document.cookie`, `innerHTML` or `eval`.
 - Not tested: the rendering itself. There is no JavaScript test runner in CI; the page was checked by eye
   in one browser engine.
+- Release and action (`tests/test_release.py`): one version across package, action and example; inputs
+  passed to shell commands only through environment variables; the identity token only in the publishing
+  job, no stored credential; pinned external actions; no relative link or image in the README shown on
+  PyPI. A CI job runs the action on the clean and the broken example batch. The release workflow runs
+  only on a tag and is not exercised by CI.
 
 ### 16.5 Acceptance criteria for phase 4
 
