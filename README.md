@@ -226,6 +226,8 @@ so it can be a CI step. Cell values are not printed unless asked for.
 
 ## Install
 
+<a href="https://pypi.org/project/ml-data-guard/" target="_blank" rel="noopener noreferrer">ml-data-guard on PyPI</a>
+
 ```bash
 pip install ml-data-guard            # the library and the mlguard command
 pip install "ml-data-guard[bench]"   # adds scikit-learn for the model-impact part of the benchmark

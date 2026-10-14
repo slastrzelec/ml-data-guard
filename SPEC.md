@@ -1,6 +1,6 @@
 # SPEC: ml-data-guard
 
-Status: **APPROVED v0.7 (2026-10-10).** Phases 1 to 3 complete (audits in section 13); phase 4 (presentation and distribution) designed in section 16. Scope changes go into this file first.
+Status: **APPROVED v0.8 (2026-10-14).** Phases 1 to 4 complete (audits in section 13). Version 0.1.0 is on PyPI. Scope changes go into this file first.
 
 Data validation for ML pipelines, benchmarked with injected faults.
 
@@ -288,20 +288,26 @@ schema rejects 19% of clean News and 40% of clean Beijing batches; no check in t
 `time_travel`; the News model (accuracy 0.675) is too weak to support conclusions about model impact;
 the comparison with existing tools does not exist.
 
-### Phase 4a: results explorer (2026-10-10)
+### Phase 4: results explorer, figures and distribution (2026-10-10 to 2026-10-14)
 
 | Acceptance criterion (section 16.5) | State | Evidence |
 |---|---|---|
 | 1. The build reproduces `explorer/index.html` from the tracked result files | Met | `tests/test_explorer.py::test_the_tracked_page_is_what_the_build_produces`. |
 | 2. Opens from the file system, no network request | Met in one engine | Opened from disk in headless Chromium: 559 of 559 combinations rendered, no script error, the only request was the file itself. A test forbids external references and storage calls in the page. Firefox and Safari not checked. |
 | 3. Portfolio page shows the explorer above the tables; README links to it | Met | The copy in the portfolio repository is made by hand; nothing checks that it matches this repository. |
-| 4. PyPI package and GitHub Action (4b) | Open | Not started. |
+| 4. `pip install ml-data-guard` gives a working `mlguard`; the action runs in CI and fails on the broken batch | Met | Version 0.1.0 published by the release workflow (trusted publishing, no stored token) from tag `v0.1.0`. Installed from PyPI into a clean environment: `mlguard --version` gives 0.1.0, `infer` and `validate` work, a batch with a unit change is rejected. CI job `action` green on commit 5e61431. |
 
 Five mutants added for the explorer build (95 in total), all killed locally.
 
 Static figures (section 16.6): three images in `figures/`, linked from the README and the portfolio page.
 The selection of the numbers is tested (`tests/test_figures.py`); the drawing is not, and the images were
 inspected by hand.
+
+Deviation: the tag `v0.1.0` was pushed before CI on its commit had finished. The release went out with only
+the local test run (710 passed) behind it; CI on the same commit passed afterwards. From now on a version is
+tagged only on a commit with green CI.
+
+Open: the rendering of the README on pypi.org was not inspected; the release workflow has run once.
 
 ## 14. Phase 2 design: the library layer
 
