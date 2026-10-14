@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlguard import cli
+from mlguard import __version__, cli
 from mlguard.datasets import make_synthetic, make_synthetic_series
 from mlguard.inject import FAULTS
 from mlguard.schema import Schema
@@ -224,7 +224,7 @@ def test_wrong_usage_is_exit_code_two(capsys) -> None:  # type: ignore[no-untype
     with pytest.raises(SystemExit) as raised:
         cli.main(["--version"])
     assert raised.value.code == 0
-    assert "mlguard 0.1.0" in capsys.readouterr().out
+    assert f"mlguard {__version__}" in capsys.readouterr().out
 
 
 def test_bench_is_reachable_through_the_command_line(tmp_path: Path) -> None:

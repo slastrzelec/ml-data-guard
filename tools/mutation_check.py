@@ -28,6 +28,10 @@ COPIED = (
 )  # fmt: skip
 EXPLORER = "tools/build_explorer.py"
 EXPLORER_TESTS = ("tests/test_explorer.py",)
+SERVICE = "src/mlguard/api/service.py"
+DEMO = "src/mlguard/demo.py"
+SERVICE_TESTS = ("tests/test_api.py",)
+DEMO_TESTS = ("tests/test_demo.py",)
 DISTANCES = "src/mlguard/distances.py"
 INJECT = "src/mlguard/inject.py"
 DISTANCE_TESTS = ("tests/test_distances.py", "tests/test_binning.py")
@@ -738,6 +742,69 @@ MUTANTS = [
         'payload.replace("</", "<\\\\/")',
         "payload",
         EXPLORER_TESTS,
+    ),
+    Mutant(
+        "the service accepts files of any size",
+        SERVICE,
+        "    if len(data) > MAX_FILE_BYTES:\n",
+        "    if False:\n",
+        SERVICE_TESTS,
+    ),
+    Mutant(
+        "the service accepts any number of rows",
+        SERVICE,
+        "    if len(frame) > MAX_ROWS:\n",
+        "    if False:\n",
+        SERVICE_TESTS,
+    ),
+    Mutant(
+        "cell values are shown by default",
+        SERVICE,
+        "        show_values: Annotated[bool, Form()] = False,",
+        "        show_values: Annotated[bool, Form()] = True,",
+        SERVICE_TESTS,
+    ),
+    Mutant(
+        "uploaded schemas keep category values in plain text",
+        SERVICE,
+        'domains: Annotated[Literal["hashed", "none"], Form()] = "hashed"',
+        'domains: Annotated[Literal["hashed", "none", "plain"], Form()] = "plain"',
+        SERVICE_TESTS,
+    ),
+    Mutant(
+        "the request log records the query string",
+        SERVICE,
+        "            request.url.path,\n",
+        "            str(request.url),\n",
+        SERVICE_TESTS,
+    ),
+    Mutant(
+        "the page allows scripts from anywhere",
+        SERVICE,
+        "\"default-src 'none'; script-src 'self'; style-src 'self';",
+        "\"default-src 'none'; script-src *; style-src 'self';",
+        SERVICE_TESTS,
+    ),
+    Mutant(
+        "an unexpected error returns its message",
+        SERVICE,
+        '        return _problem(500, "internal error")',
+        "        return _problem(500, str(error))",
+        SERVICE_TESTS,
+    ),
+    Mutant(
+        "the demo calibrates on the evaluation part",
+        DEMO,
+        "            rows = rng.choice(calibration_rows, size=batch_size, replace=False)",
+        "            rows = rng.choice(evaluation_rows, size=batch_size, replace=False)",
+        DEMO_TESTS,
+    ),
+    Mutant(
+        "the demo infers its schema from the whole table",
+        DEMO,
+        "    schema = infer_schema(reference[list(dataset.features)])",
+        "    schema = infer_schema(dataset.frame[list(dataset.features)])",
+        DEMO_TESTS,
     ),
 ]
 

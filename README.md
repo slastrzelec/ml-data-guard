@@ -222,7 +222,8 @@ the same rows, which is why it is not a column of the tables above.
 Every command exits with 0 (clean), 1 (anomaly) or 2 (unreadable input), and prints text or JSON,
 so it can be a CI step. Cell values are not printed unless asked for.
 
-**Not in scope:** repairing data, streaming validation, text or image data, a web interface.
+**Not in scope:** repairing data, streaming validation, text or image data, a data platform (the web
+service below stores nothing and has no accounts).
 
 ## Install
 
@@ -236,7 +237,7 @@ pip install "ml-data-guard[bench]"   # adds scikit-learn for the model-impact pa
 As a step in GitHub Actions, failing the job on any anomaly:
 
 ```yaml
-- uses: slastrzelec/ml-data-guard@v0.1.0
+- uses: slastrzelec/ml-data-guard@v0.2.0
   with:
     batch: data/batch.csv
     schema: schema.json
@@ -245,6 +246,31 @@ As a step in GitHub Actions, failing the job on any anomaly:
 
 The action is run in this repository's CI on a clean and on a broken example batch, and must
 reject the broken one.
+
+## Web service
+
+A small FastAPI service with a one-page front end: break a synthetic batch and see which rule
+notices, or infer a schema from a CSV file and check another file against it.
+
+```bash
+pip install "ml-data-guard[api]"
+python -m mlguard.api          # http://localhost:7860, API documentation at /docs
+docker build -t mlguard-api . && docker run -p 7860:7860 mlguard-api
+```
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/v1/health` | status and version |
+| `GET /api/v1/demo/options`, `POST /api/v1/demo` | inject a fault into a synthetic batch; verdict of every rule on the clean and the faulty batch |
+| `POST /api/v1/infer` | CSV upload -> schema (category values hashed or left out) |
+| `POST /api/v1/validate` | CSV upload + schema -> anomalies, same as `mlguard validate --format json` |
+| `POST /api/v1/compare` | two CSV uploads + schema -> distribution shift with calibrated limits |
+
+How uploads are handled: read into memory and released with the request, never written to disk or
+logged; at most 2 MB, 50,000 rows and 200 columns, CSV only; no category value in any answer unless
+asked for; no cookies, no third-party script on the page, a strict Content-Security-Policy; the
+request log holds method, path, status and duration only. Numeric ranges and the observed minimum
+and maximum of a batch do appear in answers, because that is what a range check reports.
 
 ## Quick start (from source)
 
@@ -333,15 +359,24 @@ threshold and `pip-audit` run on Python 3.11 and 3.12 in GitHub Actions.
 - **Figures:** the three figures are drawn by `tools/make_figures.py` from the result files; the
   functions that pick the numbers are tested (right run, right fault, increasing dose, unscored
   cells left out, sign and unit of the accuracy loss).
+- **Web service:** every endpoint through FastAPI's test client: results on clean and broken files,
+  the same anomalies as the command line, each upload limit and malformed input (zip, gzip, binary,
+  non-UTF-8, broken quoting, empty, too many rows, columns or bytes) answered with a short 4xx and no
+  traceback; a sentinel category value placed in an upload appears in no answer; no file is written
+  during requests; the request log has no query string, file name or client; security headers on
+  every response; the demo calibrates on clean rows only (replacing every evaluation row with garbage
+  leaves its limits and schema unchanged). CI builds the Docker image, starts it and checks that it
+  answers, runs as a non-root user and logs no client address.
 - **Failure handling:** unnormalised, negative, non-finite, empty or misaligned input, unknown
   config keys and damaged data files raise an error instead of returning a plausible number.
-- **Security and hygiene:** no socket can be opened during tests; no data, secret or large file is
+- **Security and hygiene:** no test can connect to another host (loopback stays open for the test
+  client's event loop), and a hung test fails after five minutes; no data, secret or large file is
   tracked; the package imports no `pickle`-like or network module and calls no `eval`/`exec`.
 
 **How the tests were checked:** `python tools/mutation_check.py` re-introduces known bugs one at a
 time (for example `L-inf` returning a sum, an injector that ignores the seed, thresholds calibrated on
 the evaluation split, a silenced anomaly type, category values printed by default, exit code 0
-despite anomalies) and requires the suite to fail for each of the 95 mutants. The list is hand-written and targeted; it
+despite anomalies) and requires the suite to fail for each of the 104 mutants. The list is hand-written and targeted; it
 is not exhaustive mutation testing.
 
 **Not covered**
@@ -361,6 +396,11 @@ is not exhaustive mutation testing.
   wheel in a clean environment were run locally before the first release.
 - The drawing of the figures: matplotlib is not installed in CI, so nothing checks that the
   tracked images match the current result files. They were regenerated and inspected by hand.
+- The web front end in a browser: there is no JavaScript test in CI. Both tabs were clicked through
+  once in headless Chromium at desktop and phone width, with no script error and no request to
+  another host. The Hugging Face deployment is checked by hand only.
+- Abuse of the public service: there is no rate limiting by client and no wall-clock timeout; the
+  work per request is bounded by the upload limits instead.
 - How the explorer renders: there is no JavaScript test in CI. It was opened once in headless
   Chromium at two widths, stepping through all 559 combinations without a script error or a
   network request; other browsers were not checked.

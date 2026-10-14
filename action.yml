@@ -23,7 +23,7 @@ inputs:
   package:
     description: What pip installs. Defaults to the release that matches this version of the action.
     required: false
-    default: ml-data-guard==0.1.0
+    default: ml-data-guard==0.2.0
   python-version:
     description: Python used to run the checks.
     required: false

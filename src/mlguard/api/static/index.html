@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ml-data-guard</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>ml-data-guard</h1>
+  <p class="muted">Data validation for ML pipelines. Break a synthetic batch and see which check notices,
+  or check a CSV file of your own. API documentation: <a href="/docs">/docs</a>.</p>
+</header>
+
+<nav role="tablist" aria-label="Mode">
+  <button type="button" role="tab" id="tab-demo" aria-controls="panel-demo" aria-selected="true">Break the data</button>
+  <button type="button" role="tab" id="tab-file" aria-controls="panel-file" aria-selected="false">Check your file</button>
+</nav>
+
+<section id="panel-demo" role="tabpanel" aria-labelledby="tab-demo">
+  <p class="muted">A synthetic table (seven features) is split into reference, calibration and evaluation
+  parts. One batch from the evaluation part is scored as it is and again with the fault injected.
+  Distances use limits calibrated on clean batches for a 1% false-alarm rate per feature.</p>
+  <div class="grid">
+    <label>Fault<select id="demo-fault"></select></label>
+    <label>Feature<select id="demo-feature"></select></label>
+    <label>Dose <span id="demo-unit" class="muted"></span><input id="demo-severity" type="number" step="any"></label>
+    <label>Rows per batch<select id="demo-size"></select></label>
+    <label>Seed<input id="demo-seed" type="number" min="0" step="1" value="0"></label>
+  </div>
+  <div class="actions"><button type="button" id="demo-run" class="primary">Inject and check</button>
+  <span id="demo-status" class="muted" role="status"></span></div>
+  <div id="demo-result"></div>
+</section>
+
+<section id="panel-file" role="tabpanel" aria-labelledby="tab-file" hidden>
+  <p class="notice">Files are processed in memory and not stored or logged. Limits: CSV, 2 MB, 50,000 rows,
+  200 columns. Please do not upload personal data.</p>
+  <h2>1. Schema</h2>
+  <p class="muted">Infer one from reference data, or load a schema written by <code>mlguard infer</code>.
+  Category values in an inferred schema are stored as hashes.</p>
+  <div class="grid">
+    <label>Reference data (CSV)<input id="file-reference" type="file" accept=".csv,text/csv"></label>
+    <label>Columns that are not features<input id="file-exclude" type="text" placeholder="id, target"></label>
+    <label>Or a schema file (JSON)<input id="file-schema" type="file" accept=".json,application/json"></label>
+  </div>
+  <div class="actions"><button type="button" id="file-infer" class="primary">Infer schema</button>
+  <button type="button" id="file-download" disabled>Download schema</button>
+  <span id="file-schema-status" class="muted" role="status"></span></div>
+  <h2>2. Check a batch</h2>
+  <div class="grid">
+    <label>Batch (CSV)<input id="file-batch" type="file" accept=".csv,text/csv"></label>
+    <label class="check"><input id="file-compare" type="checkbox"> Also compare distributions with the reference data</label>
+  </div>
+  <div class="actions"><button type="button" id="file-validate" class="primary" disabled>Check batch</button>
+  <span id="file-status" class="muted" role="status"></span></div>
+  <div id="file-result"></div>
+</section>
+
+<footer class="muted">ml-data-guard · results of the benchmark behind it:
+<a href="https://slastrzelec.github.io/portfolio/ml-data-guard/" target="_blank" rel="noopener noreferrer">project page</a> ·
+<a href="https://github.com/slastrzelec/ml-data-guard" target="_blank" rel="noopener noreferrer">source</a></footer>
+</body>
+</html>

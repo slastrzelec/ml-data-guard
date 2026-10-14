@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: slastrzelec/ml-data-guard@v0.1.0
+      - uses: slastrzelec/ml-data-guard@v0.2.0
         with:
           batch: data/batch.csv
           schema: schema.json

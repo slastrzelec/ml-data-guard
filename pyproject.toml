@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ml-data-guard"
-version = "0.1.0"
+version = "0.2.0"
 description = "Data validation for ML pipelines, benchmarked with injected faults."
 dynamic = ["readme"]
 requires-python = ">=3.11"
@@ -33,13 +33,23 @@ bench = [
 figures = [
     "matplotlib>=3.8,<4",
 ]
+api = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "python-multipart>=0.0.9,<1",
+]
 dev = [
     "scikit-learn>=1.5,<2",
     "pytest>=8,<10",
     "pytest-cov>=5,<8",
+    "pytest-timeout>=2.3,<3",
     "hypothesis>=6.100,<7",
     "ruff>=0.6,<1",
     "pip-audit>=2.7,<3",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "python-multipart>=0.0.9,<1",
+    "httpx2>=2,<3",
 ]
 
 [project.scripts]
@@ -78,6 +88,9 @@ testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
 xfail_strict = true
 filterwarnings = ["error"]
+# A hung test fails with a traceback instead of blocking the run (thread method: works on Windows).
+timeout = 300
+timeout_method = "thread"
 
 [tool.coverage.run]
 source = ["mlguard"]

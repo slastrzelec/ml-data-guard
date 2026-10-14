@@ -122,8 +122,22 @@ def test_source_does_not_import_network_modules() -> None:
         assert not (_imported_modules(tree) & NETWORK_MODULES), path
 
 
-def test_opening_a_socket_fails_inside_the_test_suite() -> None:
-    with pytest.raises(RuntimeError, match="offline"):
-        socket.socket()
+def test_reaching_another_host_fails_inside_the_test_suite() -> None:
     with pytest.raises(RuntimeError, match="offline"):
         socket.create_connection(("example.org", 443))
+    with socket.socket() as tcp, pytest.raises(RuntimeError, match="offline"):
+        tcp.connect(("93.184.216.34", 443))
+    with socket.socket() as tcp, pytest.raises(RuntimeError, match="offline"):
+        tcp.connect_ex(("example.org", 80))
+    with (
+        socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp,
+        pytest.raises(RuntimeError, match="offline"),
+    ):
+        udp.sendto(b"x", ("8.8.8.8", 53))
+
+
+def test_the_loopback_interface_stays_usable_for_event_loops() -> None:
+    first, second = socket.socketpair()
+    with first, second:
+        first.sendall(b"ping")
+        assert second.recv(4) == b"ping"

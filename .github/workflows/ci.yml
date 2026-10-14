@@ -73,6 +73,30 @@ jobs:
           echo "the action accepted a batch with three injected faults"
           exit 1
 
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build -t mlguard-api .
+      - name: The service answers inside the container
+        run: |
+          docker run -d --name api -p 7860:7860 mlguard-api
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7860/api/v1/health; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:7860/api/v1/health | grep -q '"status":"ok"'
+          curl -fsS http://127.0.0.1:7860/ | grep -q 'Check your file'
+          curl -fsS -X POST http://127.0.0.1:7860/api/v1/demo \
+            -H 'Content-Type: application/json' \
+            -d '{"fault":"unit_change","severity":0.05}' | grep -q '"faulty"'
+      - name: The container runs as a non-root user and logs no client address
+        run: |
+          test "$(docker exec api id -u)" = "1000"
+          docker logs api 2>&1 | tee container.log
+          ! grep -E '172\.17\.|127\.0\.0\.1:[0-9]+ -' container.log
+
   mutation:
     runs-on: ubuntu-latest
     steps:
