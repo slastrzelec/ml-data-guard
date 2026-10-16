@@ -94,7 +94,7 @@ pip-audit==2.10.1
     # via ml-data-guard (pyproject.toml)
 pip-requirements-parser==32.0.1
     # via pip-audit
-platformdirs==4.12.4
+platformdirs==4.13.0
     # via pip-audit
 pluggy==1.6.0
     # via
