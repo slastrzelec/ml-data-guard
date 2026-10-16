@@ -131,7 +131,7 @@ requests==2.34.2
     #   pip-audit
 rich==15.0.0
     # via pip-audit
-ruff==0.16.10
+ruff==0.17.0
     # via ml-data-guard (pyproject.toml)
 scikit-learn==1.9.1
     # via ml-data-guard (pyproject.toml)
