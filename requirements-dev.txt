@@ -61,7 +61,7 @@ mdurl==0.1.2
     # via markdown-it-py
 msgpack==1.2.3
     # via cachecontrol
-narwhals==2.26.0
+narwhals==2.27.1
     # via scikit-learn
 numpy==2.4.6 ; python_full_version < '3.12'
     # via
