@@ -42,7 +42,7 @@ httpx2==2.13.1
     # via ml-data-guard (pyproject.toml)
 httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscripten'
     # via httpx2
-hypothesis==6.168.5
+hypothesis==6.169.0
     # via ml-data-guard (pyproject.toml)
 idna==3.20
     # via
